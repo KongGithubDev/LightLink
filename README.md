@@ -85,7 +85,7 @@ npm run start
 - Configure the ESP32 (HTTPS):
 
 ```
-String serverHost = "https://lightlink.kongwatcharapong.in.th";
+String serverHost = "https://<your-domain>";
 int serverPort = 443;                       // standard HTTPS
 String authToken = "<your-strong-secret>";  // Must match LIGHTLINK_TOKEN
 ```
@@ -106,6 +106,7 @@ String authToken = "<your-strong-secret>";  // Must match LIGHTLINK_TOKEN
 
 - `LIGHTLINK_TOKEN` — Bearer token used by server and clients (ESP32) for Authorization
 - `LIGHTLINK_MOCK` — `1` to enable mock mode (dev only), omit or `0` in production
+- `NEXT_PUBLIC_SITE_URL` — Your domain (e.g., `<your-domain>`)
 
 ## Commands
 
@@ -132,6 +133,7 @@ npm run start
 - Keep `LIGHTLINK_TOKEN` secret; rotate periodically.
 - Consider separate tokens for device and UI, or JWT with short TTL.
 - Add rate limiting on the reverse proxy.
+- Enforce Authorization on all endpoints.
 
 ## License
 
