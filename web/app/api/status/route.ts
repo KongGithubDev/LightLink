@@ -12,6 +12,10 @@ function isMock() {
 }
 
 function isSameOrigin(req: NextRequest) {
+  const origin = req.headers.get("origin") || ""
+  try {
+    if (origin) return origin === new URL(req.url).origin
+  } catch {}
   const ref = req.headers.get("referer") || ""
   try {
     return new URL(ref).origin === new URL(req.url).origin
@@ -30,7 +34,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!authorize(req) && !isSameOrigin(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+  if (!isMock() && !authorize(req) && !isSameOrigin(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+  }
   const store = getStore()
   let cur = store.getStatus()
   if (!cur && isMock()) {
