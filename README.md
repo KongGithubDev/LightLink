@@ -74,7 +74,7 @@ Upload to your ESP32. Ensure PC and ESP32 are on the same LAN and firewall allow
 
 ## Production Deployment
 
-- Place the Next.js app behind an HTTPS reverse proxy (Caddy/Nginx/Traefik) at your domain, e.g. `https://lightlink.kongwatcharapong.in.th`.
+- Place the Next.js app behind an HTTPS reverse proxy (Caddy/Nginx/Traefik) at your domain, e.g. `https://<your-domain>`.
 - Build and start in `web/`:
 
 ```
