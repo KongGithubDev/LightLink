@@ -2,8 +2,6 @@
 
 Smart home lighting controller for ESP32 + Next.js.
 
-This is a high-school (M.5) project submission.
-
 ## Features
 
 - Secure server-controlled architecture
