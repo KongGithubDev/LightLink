@@ -50,6 +50,25 @@ const size_t MAX_LIGHTS = 10;
 Light lights[MAX_LIGHTS];
 size_t NUM_LIGHTS = 0;
 
+// Track GPIO pin states for allowed pins (19,21,22,23)
+bool pinStates[4] = { false, false, false, false };
+int pinIndex(uint8_t p) {
+  if (p == 19) return 0;
+  if (p == 21) return 1;
+  if (p == 22) return 2;
+  if (p == 23) return 3;
+  return -1;
+}
+void recalcPinState(uint8_t p) {
+  int idx = pinIndex(p);
+  if (idx < 0) return;
+  bool on = false;
+  for (size_t i = 0; i < NUM_LIGHTS; i++) {
+    if (lights[i].pin == p) { on = on || lights[i].state; }
+  }
+  pinStates[idx] = on;
+}
+
 // Forward declarations
 bool loadLightsFromServer();
 void clearLights();
@@ -105,6 +124,7 @@ void setup() {
 void applyLightState(size_t idx, bool on) {
   lights[idx].state = on;
   digitalWrite(lights[idx].pin, on ? HIGH : LOW);
+  recalcPinState(lights[idx].pin);
 }
 
 int timeToMinutes(int h, int m) { return h * 60 + m; }
@@ -165,6 +185,9 @@ void configurePinsForCurrentLights() {
     pinMode(lights[i].pin, OUTPUT);
     digitalWrite(lights[i].pin, lights[i].state ? HIGH : LOW);
   }
+  // Recompute pinStates
+  pinStates[0] = pinStates[1] = pinStates[2] = pinStates[3] = false;
+  for (size_t i = 0; i < NUM_LIGHTS; i++) recalcPinState(lights[i].pin);
 }
 
 void warmupServer() {
@@ -272,6 +295,11 @@ void sendStatusWS() {
     o["on"] = onbuf;
     o["off"] = offbuf;
   }
+  // Include pins array for direct GPIO state even if no light maps to the pin
+  JsonArray parr = p.createNestedArray("pins");
+  struct { uint8_t pin; bool state; } ps[4] = { {19,false},{21,false},{22,false},{23,false} };
+  for (int i = 0; i < 4; i++) { ps[i].state = pinStates[i]; }
+  for (int i = 0; i < 4; i++) { JsonObject po = parr.createNestedObject(); po["pin"] = ps[i].pin; po["state"] = ps[i].state; }
   String out;
   serializeJson(payload, out);
   Serial.print("WS send status, bytes="); Serial.println(out.length());
@@ -315,6 +343,9 @@ void handleJsonCommand(const String& json) {
         pinMode((uint8_t)pin, OUTPUT);
         digitalWrite((uint8_t)pin, state ? HIGH : LOW);
       }
+      // Update tracked pin state
+      int pidx = pinIndex((uint8_t)pin);
+      if (pidx >= 0) pinStates[pidx] = state;
       sendStatusWS();
     }
     return;

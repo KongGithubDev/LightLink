@@ -23,6 +23,8 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
   const [lights, setLights] = useState<Record<string, UILight>>({})
   // Optimistic state for PIN toggles so UI reflects immediately before device status comes back
   const [pinOptimistic, setPinOptimistic] = useState<Record<number, boolean>>({})
+  // Latest pin state reported by device (payload.pins)
+  const [pinReport, setPinReport] = useState<Record<number, boolean>>({})
   const [logLines, setLogLines] = useState<string[]>([])
   const socketRef = useRef<Socket | null>(null)
   const wsConnectedRef = useRef(false)
@@ -45,15 +47,22 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
           next[id] = { id, label: prettyLabel(id), isOn: !!l.state, pin: typeof l.pin === 'number' ? l.pin : undefined }
         })
         setLights(next)
-        // Clear optimistic pins that are now covered by latest status
+      }
+      if (Array.isArray(payload?.pins)) {
+        const map: Record<number, boolean> = {}
+        ;(payload.pins as any[]).forEach((po) => {
+          const pin = Number(po?.pin)
+          const state = !!po?.state
+          if ([19,21,22,23].includes(pin)) map[pin] = state
+        })
+        setPinReport(map)
+        // Clear optimistic for pins that we have authoritative report on
         setPinOptimistic((prev) => {
+          if (!prev) return prev
           const copy = { ...prev }
-          for (const p of Object.keys(copy)) {
-            const pinNum = Number(p)
-            // if any light reports this pin, clear the optimistic override
-            if (Object.values(next).some((L) => L.pin === pinNum)) {
-              delete copy[pinNum]
-            }
+          for (const k of Object.keys(copy)) {
+            const p = Number(k)
+            if (p in map) delete copy[p]
           }
           return copy
         })
@@ -106,9 +115,16 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
   const allowedPins = [19, 21, 22, 23]
   const pinState: Record<number, boolean> = {}
   for (const p of allowedPins) pinState[p] = false
-  for (const L of Object.values(lights)) {
-    if (typeof L.pin === 'number' && allowedPins.includes(L.pin)) {
-      pinState[L.pin] = pinState[L.pin] || L.isOn
+  // Prefer device-reported pins state if present
+  for (const p of allowedPins) {
+    if (p in pinReport) pinState[p] = !!pinReport[p]
+  }
+  // Fallback to derived from lights if no pinReport
+  if (Object.keys(pinReport).length === 0) {
+    for (const L of Object.values(lights)) {
+      if (typeof L.pin === 'number' && allowedPins.includes(L.pin)) {
+        pinState[L.pin] = pinState[L.pin] || L.isOn
+      }
     }
   }
   // Apply optimistic overrides
@@ -120,15 +136,6 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     setPinOptimistic((m) => ({ ...m, [pin]: next }))
     socketRef.current?.emit("cmd", { action: "set_pin", pin, state: next })
     pushLog(`cmd(set_pin) ${pin} -> ${next}`)
-    // safety: clear optimistic after 2s if no status arrived for that pin
-    setTimeout(() => {
-      setPinOptimistic((m) => {
-        if (!(pin in m)) return m
-        const copy = { ...m }
-        delete copy[pin]
-        return copy
-      })
-    }, 2000)
   }
 
   const onCount = Object.values(lights).filter((l) => l.isOn).length
