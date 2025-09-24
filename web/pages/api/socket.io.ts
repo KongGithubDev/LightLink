@@ -28,6 +28,15 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
   if (!global.ioInstance) {
     const io = new IOServer(res.socket.server, {
       path: "/api/socket.io",
+      cors: {
+        origin: process.env.NEXT_PUBLIC_SITE_ORIGIN || true,
+        methods: ["GET", "POST"],
+        credentials: false,
+      },
+      transports: ["websocket", "polling"],
+      allowEIO3: true,
+      pingInterval: 25000,
+      pingTimeout: 20000,
     })
     global.ioInstance = io
 

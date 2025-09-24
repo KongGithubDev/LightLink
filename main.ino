@@ -270,7 +270,6 @@ void handleJsonCommand(const String& json) {
   }
 
   const char* action = doc["action"] | "";
-  if (strcmp(action, "get_status") == 0) { postStatus(); return; }
   // For WS mode, translate get_status to sending current status over WS
   if (strcmp(action, "get_status") == 0) { sendStatusWS(); return; }
 
@@ -285,7 +284,7 @@ void handleJsonCommand(const String& json) {
         bool newState = hasState ? state : !lights[i].state; // toggle if no state
         applyLightState(i, newState);
       }
-      postStatus();
+      sendStatusWS();
       return;
     }
 
@@ -293,7 +292,7 @@ void handleJsonCommand(const String& json) {
     if (idx >= 0) {
       bool newState = hasState ? state : !lights[idx].state;
       applyLightState((size_t)idx, newState);
-      postStatus();
+      sendStatusWS();
     }
     return;
   }
