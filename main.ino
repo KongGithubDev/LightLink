@@ -125,6 +125,9 @@ void applyLightState(size_t idx, bool on) {
   lights[idx].state = on;
   digitalWrite(lights[idx].pin, on ? HIGH : LOW);
   recalcPinState(lights[idx].pin);
+  Serial.print("applyLightState -> "); Serial.print(lights[idx].name);
+  Serial.print(" (PIN "); Serial.print(lights[idx].pin);
+  Serial.print(") = "); Serial.println(on ? "ON" : "OFF");
 }
 
 int timeToMinutes(int h, int m) { return h * 60 + m; }
@@ -148,11 +151,22 @@ void checkAndApplySchedules() {
   int curMinute = timeinfo.tm_hour * 60 + timeinfo.tm_min;
   if (timeinfo.tm_min == lastCheckedMinute) return; // only once per minute
   lastCheckedMinute = timeinfo.tm_min;
-
+  Serial.print("[SCHED] now="); Serial.print(timeinfo.tm_hour); Serial.print(":"); Serial.println(timeinfo.tm_min);
   for (size_t i = 0; i < NUM_LIGHTS; i++) {
     if (!lights[i].scheduleEnabled) continue;
+    int onM = timeToMinutes(lights[i].onHour, lights[i].onMin);
+    int offM = timeToMinutes(lights[i].offHour, lights[i].offMin);
     bool shouldBeOn = isWithinSchedule(lights[i], curMinute);
+    Serial.print("  "); Serial.print(lights[i].name);
+    Serial.print(" on="); Serial.print(lights[i].onHour); Serial.print(":"); Serial.print(lights[i].onMin);
+    Serial.print(" off="); Serial.print(lights[i].offHour); Serial.print(":"); Serial.print(lights[i].offMin);
+    Serial.print(" curMin="); Serial.print(curMinute);
+    Serial.print(" onM="); Serial.print(onM);
+    Serial.print(" offM="); Serial.print(offM);
+    Serial.print(" shouldBeOn="); Serial.print(shouldBeOn ? 1 : 0);
+    Serial.print(" state="); Serial.println(lights[i].state ? 1 : 0);
     if (shouldBeOn != lights[i].state) {
+      Serial.println("  -> schedule change detected, applying");
       applyLightState(i, shouldBeOn);
       sendStatusWS();
     }
@@ -330,6 +344,7 @@ void handleJsonCommand(const String& json) {
     int pin = doc["pin"] | -1;
     bool state = doc["state"] | false;
     if (isAllowedPin((uint8_t)pin)) {
+      Serial.print("cmd set_pin -> PIN "); Serial.print(pin); Serial.print(" state="); Serial.println(state ? 1 : 0);
       // Apply to any known lights sharing this pin
       bool any = false;
       for (size_t i = 0; i < NUM_LIGHTS; i++) {
@@ -386,6 +401,7 @@ void handleJsonCommand(const String& json) {
     int idx = findLightIndexByName(target);
     if (idx >= 0) {
       bool newState = hasState ? state : !lights[idx].state;
+      Serial.print("cmd set -> "); Serial.print(target); Serial.print(" state="); Serial.println(newState ? 1 : 0);
       applyLightState((size_t)idx, newState);
       Serial.print("Applied state to "); Serial.print(target); Serial.print(": "); Serial.println(newState);
       sendStatusWS();
@@ -397,7 +413,10 @@ void handleJsonCommand(const String& json) {
     // { action:"schedule", room:"kitchen", on:"HH:MM", off:"HH:MM", enabled:true }
     String room = String((const char*)(doc["room"] | ""));
     int idx = findLightIndexByName(room);
-    if (idx < 0) return;
+    if (idx < 0) {
+      Serial.print("schedule: room not found -> "); Serial.println(room);
+      return;
+    }
 
     const char* onStr = doc["on"] | nullptr;
     const char* offStr = doc["off"] | nullptr;
@@ -422,7 +441,14 @@ void handleJsonCommand(const String& json) {
     if (getLocalTime(&timeinfo2)) {
       int curMinute = timeinfo2.tm_hour * 60 + timeinfo2.tm_min;
       bool shouldBeOn = lights[idx].scheduleEnabled && isWithinSchedule(lights[idx], curMinute);
+      Serial.print("schedule saved -> "); Serial.print(lights[idx].name);
+      Serial.print(" on="); Serial.print(lights[idx].onHour); Serial.print(":"); Serial.print(lights[idx].onMin);
+      Serial.print(" off="); Serial.print(lights[idx].offHour); Serial.print(":"); Serial.print(lights[idx].offMin);
+      Serial.print(" now="); Serial.print(timeinfo2.tm_hour); Serial.print(":"); Serial.print(timeinfo2.tm_min);
+      Serial.print(" shouldBeOn="); Serial.print(shouldBeOn ? 1 : 0);
+      Serial.print(" currentState="); Serial.println(lights[idx].state ? 1 : 0);
       if (shouldBeOn != lights[idx].state) {
+        Serial.println("  -> applying immediate schedule state change");
         applyLightState((size_t)idx, shouldBeOn);
       }
     }
@@ -447,6 +473,10 @@ void wsEvent(WStype_t type, uint8_t * payload, size_t length) {
       wsConnected = true;
       Serial.println("WS connected");
       wsReconnectAttempts = 0;
+      // Refresh lights from server on each WS connect in case boot-time load was empty
+      if (loadLightsFromServer()) {
+        configurePinsForCurrentLights();
+      }
       sendStatusWS();
       break;
     case WStype_DISCONNECTED: {

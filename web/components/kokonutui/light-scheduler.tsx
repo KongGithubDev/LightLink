@@ -145,20 +145,6 @@ export default function LightScheduler() {
     setLights((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }))
   }
 
-  // Note: Power toggle removed from Light Scheduling per request
-
-  const toggleAll = () => {
-    const someOn = Object.values(lights).some((l) => l.state)
-    const next = !someOn
-    // optimistic update for all entries
-    setLights((prev) => {
-      const copy: Record<string, DeviceLight> = {}
-      for (const [k, v] of Object.entries(prev)) copy[k] = { ...v, state: next }
-      return copy
-    })
-    socketRef.current?.emit("cmd", { action: "set", target: "all", state: next })
-  }
-
   const saveSchedule = async (id: string) => {
     const L = lights[id]
     if (!L) return
@@ -215,7 +201,7 @@ export default function LightScheduler() {
 
   const entries = Object.values(lights)
 
-  const someOn = entries.some((l) => l.state)
+  
 
   // PIN usage helpers for Add Light form
   const allowedPins = [19, 21, 22, 23]
@@ -233,14 +219,11 @@ export default function LightScheduler() {
   return (
     <div className="w-full space-y-3">
       {/* Realtime clock moved to TopNav; WS status removed */}
-      {/* Header with summary and Toggle All */}
+      {/* Header with summary */}
       <div className="flex justify-between items-center">
         <span className="text-sm text-muted-foreground">
           {entries.filter((l) => l.state).length} of {entries.length} lights on
         </span>
-        <Button variant="outline" size="sm" onClick={toggleAll} className="text-xs bg-transparent">
-          {someOn ? "Turn All Off" : "Turn All On"}
-        </Button>
       </div>
       {entries.length === 0 && (
         <div className="text-sm text-muted-foreground">No lights found. Add one below.</div>
