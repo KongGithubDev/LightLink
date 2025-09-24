@@ -137,7 +137,27 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
   }, [])
 
   const toggleLight = async (id: string, newState: boolean) => {
+    // optimistic room tile
     setLights((prev) => ({ ...prev, [id]: { ...prev[id], isOn: newState } }))
+    const L = lights[id]
+    // If this room maps to a GPIO pin, also drive the pin directly for immediate relay action
+    if (L && typeof L.pin === 'number') {
+      // optimistic pin overlay
+      setPinOptimistic((m) => ({ ...m, [L.pin!]: newState }))
+      // apply to any rooms sharing the same pin
+      setLights((prev) => {
+        const copy: Record<string, UILight> = {}
+        for (const [k, v] of Object.entries(prev)) {
+          const R = { ...v }
+          if (typeof R.pin === 'number' && R.pin === L.pin) R.isOn = newState
+          copy[k] = R
+        }
+        return copy
+      })
+      socketRef.current?.emit("cmd", { action: "set_pin", pin: L.pin, state: newState })
+      pushLog(`cmd(set_pin) ${L.pin} <- room:${id} -> ${newState}`)
+    }
+    // Still send set by name for consistency
     socketRef.current?.emit("cmd", { action: "set", target: id, state: newState })
     pushLog(`cmd(set) ${id} -> ${newState}`)
   }
