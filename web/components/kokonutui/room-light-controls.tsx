@@ -47,6 +47,8 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     const onConnect = () => {
       wsConnectedRef.current = true
       pushLog("ws connected")
+      // Ask device(s) for current status via server broadcast
+      try { socket.emit("cmd", { action: "get_status" }) } catch {}
     }
     const onDisconnect = () => {
       wsConnectedRef.current = false
@@ -60,12 +62,14 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     socket.on("disconnect", onDisconnect)
     socket.on("connect_error", onError)
     socket.on("status", onStatus)
+    socket.on("cmd_ack", () => {})
 
     return () => {
       socket.off("connect", onConnect)
       socket.off("disconnect", onDisconnect)
       socket.off("connect_error", onError)
       socket.off("status", onStatus)
+      socket.off("cmd_ack")
       socket.close()
       socketRef.current = null
     }

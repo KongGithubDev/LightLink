@@ -1,4 +1,4 @@
-import { Clock, Wifi, Home } from "lucide-react"
+import { Clock, Home } from "lucide-react"
 import RoomLightControls from "./room-light-controls"
 import LightScheduler from "./light-scheduler"
 

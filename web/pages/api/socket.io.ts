@@ -33,6 +33,37 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
     global.ioInstance = io
 
     const store = getStore()
+
+    async function buildMergedStatus() {
+      try {
+        const cur = store.getStatus()
+        const col = await getCollection("lights")
+        const catalog = await col.find({}, { projection: { _id: 0 } }).toArray()
+        const byName = new Map<string, any>()
+        for (const l of cur?.lights || []) byName.set(l.name, { ...l })
+        const merged: any = { device: cur?.device || "unknown", lights: [], updatedAt: Date.now() }
+        for (const c of catalog) {
+          const ex = byName.get(c.name)
+          if (ex) {
+            merged.lights.push({
+              name: ex.name,
+              state: !!ex.state,
+              on: (ex as any).on ?? c.on ?? "00:00",
+              off: (ex as any).off ?? c.off ?? "00:00",
+              scheduleEnabled: typeof (ex as any).scheduleEnabled === "boolean" ? (ex as any).scheduleEnabled : !!c.scheduleEnabled,
+            })
+          } else {
+            merged.lights.push({ name: c.name, state: false, on: c.on || "00:00", off: c.off || "00:00", scheduleEnabled: !!c.scheduleEnabled })
+          }
+        }
+        for (const l of cur?.lights || []) {
+          if (!catalog.find((c: any) => c.name === l.name)) merged.lights.push(l)
+        }
+        return merged
+      } catch {
+        return store.getStatus()
+      }
+    }
     if (!global.ioStoreSubscribed) {
       store.subscribe((data: string) => {
         try {
@@ -56,8 +87,10 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
     if (!global.ioConnectionHandlerBound) {
       io.on("connection", (socket) => {
         try {
-          const cur = store.getStatus()
-          if (cur) socket.emit("status", cur)
+          // Send merged status so UI sees DB lights even if device hasn't posted yet
+          Promise.resolve(buildMergedStatus()).then((merged) => {
+            if (merged) socket.emit("status", merged)
+          })
         } catch {}
 
         socket.on("cmd", (body) => {
@@ -77,7 +110,18 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
                   return
                 }
                 getCollection("lights").then(async (col) => {
+                  // enforce unique pin: find any other light using this pin
+                  const pinInUse = await col.findOne({ pin, name: { $ne: name } })
+                  if (pinInUse) {
+                    socket.emit("cmd_ack", { ok: false, error: "pin_in_use" })
+                    return
+                  }
                   await col.updateOne({ name }, { $set: { name, pin, on, off, scheduleEnabled, updatedAt: Date.now() } }, { upsert: true })
+                  // Broadcast merged status to UI immediately
+                  try {
+                    const merged = await buildMergedStatus()
+                    io.emit("status", merged)
+                  } catch {}
                   // Ask devices to reload lights
                   try { store.broadcast({ type: "cmd", payload: { action: "reload_lights" } }) } catch {}
                   socket.emit("cmd_ack", { ok: true })
@@ -90,6 +134,11 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
                 if (!name) { socket.emit("cmd_ack", { ok: false, error: "invalid_delete_light" }); return }
                 getCollection("lights").then(async (col) => {
                   await col.deleteOne({ name })
+                  // Broadcast merged status to UI immediately
+                  try {
+                    const merged = await buildMergedStatus()
+                    io.emit("status", merged)
+                  } catch {}
                   try { store.broadcast({ type: "cmd", payload: { action: "reload_lights" } }) } catch {}
                   socket.emit("cmd_ack", { ok: true })
                 }).catch(() => socket.emit("cmd_ack", { ok: false }))

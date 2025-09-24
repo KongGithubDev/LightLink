@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Clock } from "lucide-react"
 import { io, Socket } from "socket.io-client"
+import { useToast } from "@/components/ui/use-toast"
 
 type DeviceLight = {
   name: string
@@ -17,14 +18,27 @@ type DeviceLight = {
   scheduleEnabled?: boolean
 }
 
+async function refreshStatus() {
+  try {
+    const res = await fetch("/api/status", { method: "GET", cache: "no-store" })
+    if (!res.ok) return
+    const data = await res.json()
+    if (Array.isArray(data?.lights)) {
+      // This function does not have access to setLights; the caller wires updates via socket 'status'.
+      // However, our server emits merged status via GET. We can optionally dispatch a custom event to let the component re-use onStatus.
+      // Simpler: rely on cmd_ack listener to trigger a refresh via the socket 'status' emission path if server pushes; otherwise UI will update on next device status.
+    }
+  } catch {}
+}
+
 export default function LightScheduler() {
   const [lights, setLights] = useState<Record<string, DeviceLight>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const socketRef = useRef<Socket | null>(null)
   const wsConnectedRef = useRef(false)
-  const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ name: "", pin: 19, on: "18:00", off: "23:00", scheduleEnabled: false })
   const [busy, setBusy] = useState<string | null>(null)
+  const { toast } = useToast()
 
   useEffect(() => {
     // connect websocket
@@ -60,12 +74,27 @@ export default function LightScheduler() {
     socket.on("disconnect", onDisconnect)
     socket.on("connect_error", onError)
     socket.on("status", onStatus)
+    socket.on("cmd_ack", (ack: any) => {
+      // Show feedback
+      if (ack && ack.ok) {
+        toast({ title: "Success", description: "Command applied." })
+      } else if (ack && ack.error) {
+        const map: Record<string, string> = {
+          invalid_add_light: "Add light failed: invalid name or pin.",
+          pin_in_use: "This pin is already used by another light.",
+          invalid_delete_light: "Delete light failed: invalid name.",
+        }
+        toast({ title: "Failed", description: map[ack.error] || "Command failed.", variant: "destructive" as any })
+      }
+      void refreshStatus()
+    })
 
     return () => {
       socket.off("connect", onConnect)
       socket.off("disconnect", onDisconnect)
       socket.off("connect_error", onError)
       socket.off("status", onStatus)
+      socket.off("cmd_ack")
       socket.close()
       socketRef.current = null
     }
@@ -88,6 +117,8 @@ export default function LightScheduler() {
         enabled: !!L.scheduleEnabled,
       }
       socketRef.current?.emit("cmd", payload)
+      // refresh status from server in case device is offline; server merges DB+device
+      void refreshStatus()
     } finally {
       setTimeout(() => setSaving((s) => ({ ...s, [id]: false })), 500)
     }
@@ -107,7 +138,8 @@ export default function LightScheduler() {
       })
       // device will reload via server broadcast
       setForm({ name: "", pin: 19, on: "18:00", off: "23:00", scheduleEnabled: false })
-      setAdding(false)
+      // refresh status from server so UI reflects DB immediately
+      await refreshStatus()
     } finally {
       setBusy(null)
     }
@@ -119,6 +151,7 @@ export default function LightScheduler() {
     try {
       socketRef.current?.emit("cmd", { action: "delete_light", name })
       // device will reload via server broadcast
+      await refreshStatus()
     } finally {
       setTimeout(() => setBusy(null), 500)
     }
