@@ -106,9 +106,10 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
   }
 
   const toggleAll = async () => {
-    const allOn = Object.values(lights).every((l) => l.isOn)
-    socketRef.current?.emit("cmd", { action: "set", target: "all", state: !allOn })
-    pushLog(`cmd(set) all -> ${!allOn}`)
+    const someOn = Object.values(lights).some((l) => l.isOn)
+    const next = !someOn // if any is on -> turn all off; if none on (including empty) -> turn all on
+    socketRef.current?.emit("cmd", { action: "set", target: "all", state: next })
+    pushLog(`cmd(set) all -> ${next}`)
   }
 
   // --- PIN controls ---
@@ -140,6 +141,7 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
 
   const onCount = Object.values(lights).filter((l) => l.isOn).length
   const total = Object.keys(lights).length
+  const someOn = onCount > 0
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -148,7 +150,7 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
           {onCount} of {total} lights on
         </span>
         <Button variant="outline" size="sm" onClick={toggleAll} className="text-xs bg-transparent">
-          Toggle All
+          {someOn ? "Turn All Off" : "Turn All On"}
         </Button>
       </div>
 
