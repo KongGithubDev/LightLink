@@ -53,9 +53,10 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
               off: (ex as any).off ?? c.off ?? "00:00",
               scheduleEnabled: typeof (ex as any).scheduleEnabled === "boolean" ? (ex as any).scheduleEnabled : !!c.scheduleEnabled,
               pin: (ex as any).pin ?? c.pin,
+              schedules: Array.isArray(c.schedules) ? c.schedules : (c.on && c.off ? [{ on: c.on, off: c.off }] : []),
             })
           } else {
-            merged.lights.push({ name: c.name, state: false, on: c.on || "00:00", off: c.off || "00:00", scheduleEnabled: !!c.scheduleEnabled, pin: c.pin })
+            merged.lights.push({ name: c.name, state: false, on: c.on || "00:00", off: c.off || "00:00", scheduleEnabled: !!c.scheduleEnabled, pin: c.pin, schedules: Array.isArray(c.schedules) ? c.schedules : (c.on && c.off ? [{ on: c.on, off: c.off }] : []) })
           }
         }
         for (const l of cur?.lights || []) {
@@ -121,31 +122,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
               }
               try {
                 const col = await getCollection("lights")
-                // allow duplicate pins only if schedules do not overlap when enabled
-                const existing = await col.find({ pin }).toArray()
-                const parseHM = (s: string) => {
-                  const m = /^([0-2]?\d):(\d{2})$/.exec(s || "00:00");
-                  if (!m) return 0; const hh = Math.min(23, Math.max(0, parseInt(m[1]||"0",10))); const mm = Math.min(59, Math.max(0, parseInt(m[2]||"0",10))); return hh*60+mm;
-                }
-                const newOn = parseHM(on); const newOff = parseHM(off);
-                const newEn = !!scheduleEnabled;
-                const overlaps = (aOn: number, aOff: number, bOn: number, bOff: number) => {
-                  // handle wrap-around intervals
-                  const norm = (onMin: number, offMin: number) => offMin >= onMin ? [[onMin, offMin]] : [[onMin, 1440], [0, offMin]]
-                  const A = norm(aOn, aOff), B = norm(bOn, bOff)
-                  for (const [s1,e1] of A) for (const [s2,e2] of B) { if (Math.max(s1,s2) < Math.min(e1,e2)) return true }
-                  return false
-                }
-                for (const ex of existing) {
-                  const exEn = !!ex.scheduleEnabled
-                  if (!newEn || !exEn) continue
-                  const exOn = parseHM(ex.on || "00:00")
-                  const exOff = parseHM(ex.off || "00:00")
-                  if (overlaps(newOn, newOff, exOn, exOff) && ex.name !== name) {
-                    socket.emit("cmd_ack", { ok: false, error: "pin_time_conflict" })
-                    return
-                  }
-                }
+                // Enforce unique pin
+                const pinInUse = await col.findOne({ pin, name: { $ne: name } })
+                if (pinInUse) { socket.emit("cmd_ack", { ok: false, error: "pin_in_use" }); return }
                 await col.updateOne({ name }, { $set: { name, pin, on, off, scheduleEnabled, updatedAt: Date.now() } }, { upsert: true })
                 // Broadcast merged status to UI immediately
                 try {
@@ -187,7 +166,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
               return
             }
             // Non-catalog commands
-            // Persist schedule changes to DB so they survive restarts
+            // Persist schedule changes
             if (body.action === "schedule") {
               const room = String(body.room || "").trim()
               const on = typeof body.on === "string" ? body.on : "00:00"
@@ -204,6 +183,46 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
                   } catch {}
                 } catch {}
               }
+            }
+            if (body.action === "schedule_multi") {
+              // Expect: { action:"schedule_multi", room, enabled, intervals: [{on,off}, ...] }
+              const room = String(body.room || "").trim()
+              const enabled = !!body.enabled
+              const intervals = Array.isArray(body.intervals) ? body.intervals : []
+              const parseHM = (s: string) => {
+                const m = /^([0-2]?\d):(\d{2})$/.exec(String(s || "00:00"))
+                if (!m) return null; const hh = Math.min(23, Math.max(0, parseInt(m[1]||"0",10))); const mm = Math.min(59, Math.max(0, parseInt(m[2]||"0",10))); return hh*60+mm;
+              }
+              const normSegs = (onM: number, offM: number) => offM >= onM ? [[onM, offM]] : [[onM, 1440],[0, offM]]
+              // Validate
+              const segs: Array<{on:number,off:number}> = []
+              for (const it of intervals) {
+                const a = parseHM(it?.on); const b = parseHM(it?.off);
+                if (a === null || b === null || a === b) { socket.emit("cmd_ack", { ok: false, error: "invalid_interval" }); return }
+                segs.push({ on: a, off: b })
+              }
+              // Check overlaps
+              const expanded: Array<[number,number]> = []
+              for (const s of segs) for (const seg of normSegs(s.on, s.off)) expanded.push(seg as [number,number])
+              for (let i=0;i<expanded.length;i++) for (let j=i+1;j<expanded.length;j++) {
+                const [s1,e1] = expanded[i], [s2,e2] = expanded[j]
+                if (Math.max(s1,s2) < Math.min(e1,e2)) { socket.emit("cmd_ack", { ok: false, error: "interval_overlap" }); return }
+              }
+              try {
+                const col = await getCollection("lights")
+                const first = segs[0] || { on: 0, off: 0 }
+                const toHM = (m:number) => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`
+                const on = toHM(first.on); const off = toHM(first.off)
+                await col.updateOne({ name: room }, { $set: { name: room, scheduleEnabled: enabled, schedules: intervals, on, off, updatedAt: Date.now() } }, { upsert: true })
+                try {
+                  const merged = await buildMergedStatus()
+                  io.emit("status", merged)
+                } catch {}
+                socket.emit("cmd_ack", { ok: true })
+              } catch {
+                socket.emit("cmd_ack", { ok: false })
+              }
+              return
             }
             store.enqueueCmd(body)
             try {

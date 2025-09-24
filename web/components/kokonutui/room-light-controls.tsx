@@ -47,7 +47,10 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
         next = {}
         ;(payload.lights as any[]).forEach((l) => {
           const id = String(l.name)
-          next![id] = { id, label: prettyLabel(id), isOn: !!l.state, pin: typeof l.pin === 'number' ? l.pin : undefined }
+          const rawPin: any = (l as any).pin
+          const parsed = typeof rawPin === 'number' ? rawPin : Number(rawPin)
+          const pin = Number.isFinite(parsed) ? parsed : undefined
+          next![id] = { id, label: prettyLabel(id), isOn: !!l.state, pin }
         })
       }
       // If we also have pins, use them to override room isOn when pin matches
@@ -182,6 +185,18 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     // optimistic update
     setPinOptimistic((m) => ({ ...m, [pin]: next }))
     setPinSyncing((m) => ({ ...m, [pin]: true }))
+    // update room tiles that share this pin immediately
+    setLights((prev) => {
+      const copy: Record<string, UILight> = {}
+      for (const [k, v] of Object.entries(prev)) {
+        const L = { ...v }
+        if (typeof L.pin === 'number' && L.pin === pin) {
+          L.isOn = next
+        }
+        copy[k] = L
+      }
+      return copy
+    })
     socketRef.current?.emit("cmd", { action: "set_pin", pin, state: next })
     pushLog(`cmd(set_pin) ${pin} -> ${next}`)
     // Fallback: hide syncing after 3s if no device status/pins arrived
