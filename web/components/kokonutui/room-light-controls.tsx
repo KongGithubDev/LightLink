@@ -27,13 +27,14 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
   const [pinSyncing, setPinSyncing] = useState<Record<number, boolean>>({})
   // Latest pin state reported by device (payload.pins)
   const [pinReport, setPinReport] = useState<Record<number, boolean>>({})
-  const [logLines, setLogLines] = useState<string[]>([])
   const socketRef = useRef<Socket | null>(null)
   const wsConnectedRef = useRef(false)
 
   const pushLog = (msg: string) => {
     const t = new Date().toLocaleTimeString()
-    setLogLines((prev) => [`[${t}] ${msg}`, ...prev.slice(0, 19)])
+    // Send to console instead of UI list
+    // eslint-disable-next-line no-console
+    console.log(`[${t}] ${msg}`)
   }
 
   useEffect(() => {
