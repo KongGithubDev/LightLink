@@ -120,6 +120,15 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     setPinOptimistic((m) => ({ ...m, [pin]: next }))
     socketRef.current?.emit("cmd", { action: "set_pin", pin, state: next })
     pushLog(`cmd(set_pin) ${pin} -> ${next}`)
+    // safety: clear optimistic after 2s if no status arrived for that pin
+    setTimeout(() => {
+      setPinOptimistic((m) => {
+        if (!(pin in m)) return m
+        const copy = { ...m }
+        delete copy[pin]
+        return copy
+      })
+    }, 2000)
   }
 
   const onCount = Object.values(lights).filter((l) => l.isOn).length
@@ -146,6 +155,9 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
                 <div key={p} className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">PIN {p}</span>
                   <Switch checked={!!pinState[p]} onCheckedChange={(v) => togglePin(p, v)} />
+                  {p in pinOptimistic && (
+                    <span className="text-[11px] text-muted-foreground">syncing…</span>
+                  )}
                 </div>
               ))}
             </div>
