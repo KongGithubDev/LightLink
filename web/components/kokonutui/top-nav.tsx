@@ -26,16 +26,7 @@ export default function TopNav() {
   const socketRef = useRef<Socket | null>(null)
 
   useEffect(() => {
-    const socket: Socket = io(undefined, {
-      path: "/api/socket.io",
-      transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
-      forceNew: true,
-    })
+    const socket: Socket = io(undefined, { path: "/api/socket.io", transports: ["websocket", "polling"] })
     socketRef.current = socket
     const onConnect = () => setState("connected")
     const onDisconnect = () => setState("disconnected")
