@@ -23,6 +23,8 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
   const [lights, setLights] = useState<Record<string, UILight>>({})
   // Optimistic state for PIN toggles so UI reflects immediately before device status comes back
   const [pinOptimistic, setPinOptimistic] = useState<Record<number, boolean>>({})
+  // Track syncing indicator per pin separately from optimistic value
+  const [pinSyncing, setPinSyncing] = useState<Record<number, boolean>>({})
   // Latest pin state reported by device (payload.pins)
   const [pinReport, setPinReport] = useState<Record<number, boolean>>({})
   const [logLines, setLogLines] = useState<string[]>([])
@@ -86,8 +88,31 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
           }
           return copy
         })
+        // Also clear syncing flags for those pins
+        setPinSyncing((prev) => {
+          if (!prev) return prev
+          const copy = { ...prev }
+          for (const k of Object.keys(copy)) {
+            const p = Number(k)
+            if (p in map) delete copy[p]
+          }
+          return copy
+        })
       }
-      if (next) setLights(next)
+      // Overlay optimistic PIN values to room cards so UI stays consistent while waiting for pins
+      if (next) {
+        setLights((prev) => {
+          const merged: Record<string, UILight> = {}
+          for (const [k, v] of Object.entries(next!)) {
+            const L = { ...v }
+            if (typeof L.pin === 'number' && (L.pin in pinOptimistic)) {
+              L.isOn = !!pinOptimistic[L.pin]
+            }
+            merged[k] = L
+          }
+          return merged
+        })
+      }
     }
     const onConnect = () => {
       wsConnectedRef.current = true
@@ -156,11 +181,12 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
   const togglePin = (pin: number, next: boolean) => {
     // optimistic update
     setPinOptimistic((m) => ({ ...m, [pin]: next }))
+    setPinSyncing((m) => ({ ...m, [pin]: true }))
     socketRef.current?.emit("cmd", { action: "set_pin", pin, state: next })
     pushLog(`cmd(set_pin) ${pin} -> ${next}`)
-    // Fallback: clear optimistic after 3s if no device status/pins arrived
+    // Fallback: hide syncing after 3s if no device status/pins arrived
     setTimeout(() => {
-      setPinOptimistic((m) => {
+      setPinSyncing((m) => {
         if (!(pin in m)) return m
         const copy = { ...m }
         delete copy[pin]
@@ -194,7 +220,7 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
                 <div key={p} className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">PIN {p}</span>
                   <Switch checked={!!pinState[p]} onCheckedChange={(v) => togglePin(p, v)} />
-                  {p in pinOptimistic && (
+                  {p in pinSyncing && (
                     <span className="text-[11px] text-muted-foreground">syncing…</span>
                   )}
                 </div>
