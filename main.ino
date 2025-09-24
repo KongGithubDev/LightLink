@@ -272,6 +272,7 @@ void sendStatusWS() {
   }
   String out;
   serializeJson(payload, out);
+  Serial.print("WS send status, bytes="); Serial.println(out.length());
   wsClient.sendTXT(out);
 }
 
@@ -283,6 +284,7 @@ int findLightIndexByName(const String& name) {
 }
 
 void handleJsonCommand(const String& json) {
+  Serial.print("handleJsonCommand: "); Serial.println(json);
   StaticJsonDocument<512> doc;
   DeserializationError err = deserializeJson(doc, json);
   if (err) {
@@ -319,6 +321,7 @@ void handleJsonCommand(const String& json) {
         bool newState = hasState ? state : !lights[i].state; // toggle if no state
         applyLightState(i, newState);
       }
+      Serial.println("Applied set/toggle to all");
       sendStatusWS();
       return;
     }
@@ -327,6 +330,7 @@ void handleJsonCommand(const String& json) {
     if (idx >= 0) {
       bool newState = hasState ? state : !lights[idx].state;
       applyLightState((size_t)idx, newState);
+      Serial.print("Applied state to "); Serial.print(target); Serial.print(": "); Serial.println(newState);
       sendStatusWS();
     }
     return;
@@ -384,11 +388,13 @@ void wsEvent(WStype_t type, uint8_t * payload, size_t length) {
       break;
     case WStype_TEXT: {
       String msg = String((const char*)payload).substring(0, length);
+      Serial.print("WS text received, bytes="); Serial.println(length);
       StaticJsonDocument<1024> doc;
       if (deserializeJson(doc, msg) == DeserializationError::Ok) {
         const char* typeStr = doc["type"] | "";
         if (strcmp(typeStr, "cmd") == 0) {
           String cmdStr; serializeJson(doc["payload"], cmdStr);
+          Serial.print("Dispatching cmd payload -> "); Serial.println(cmdStr);
           handleJsonCommand(cmdStr);
         }
         // status messages from server are ignored by device
@@ -404,6 +410,7 @@ void connectWebSocket() {
   if (slash >= 0) host = host.substring(0, slash);
   String path = String("/api/ws?token=") + authToken;
   bool isHttps = serverHost.startsWith("https://");
+  Serial.print("Connecting WS to "); Serial.print(host); Serial.print(":"); Serial.print(serverPort); Serial.print(path); Serial.print(" via "); Serial.println(isHttps ? "wss" : "ws");
   if (isHttps) {
     wsClient.beginSSL(host.c_str(), serverPort, path.c_str());
   } else {

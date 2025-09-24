@@ -18,18 +18,7 @@ type DeviceLight = {
   scheduleEnabled?: boolean
 }
 
-async function refreshStatus() {
-  try {
-    const res = await fetch("/api/status", { method: "GET", cache: "no-store" })
-    if (!res.ok) return
-    const data = await res.json()
-    if (Array.isArray(data?.lights)) {
-      // This function does not have access to setLights; the caller wires updates via socket 'status'.
-      // However, our server emits merged status via GET. We can optionally dispatch a custom event to let the component re-use onStatus.
-      // Simpler: rely on cmd_ack listener to trigger a refresh via the socket 'status' emission path if server pushes; otherwise UI will update on next device status.
-    }
-  } catch {}
-}
+// All status updates are driven by WebSocket 'status' events. No HTTP fallback.
 
 export default function LightScheduler() {
   const [lights, setLights] = useState<Record<string, DeviceLight>>({})
@@ -86,7 +75,6 @@ export default function LightScheduler() {
         }
         toast({ title: "Failed", description: map[ack.error] || "Command failed.", variant: "destructive" as any })
       }
-      void refreshStatus()
     })
 
     return () => {
@@ -117,8 +105,6 @@ export default function LightScheduler() {
         enabled: !!L.scheduleEnabled,
       }
       socketRef.current?.emit("cmd", payload)
-      // refresh status from server in case device is offline; server merges DB+device
-      void refreshStatus()
     } finally {
       setTimeout(() => setSaving((s) => ({ ...s, [id]: false })), 500)
     }
@@ -138,8 +124,6 @@ export default function LightScheduler() {
       })
       // device will reload via server broadcast
       setForm({ name: "", pin: 19, on: "18:00", off: "23:00", scheduleEnabled: false })
-      // refresh status from server so UI reflects DB immediately
-      await refreshStatus()
     } finally {
       setBusy(null)
     }
@@ -151,7 +135,6 @@ export default function LightScheduler() {
     try {
       socketRef.current?.emit("cmd", { action: "delete_light", name })
       // device will reload via server broadcast
-      await refreshStatus()
     } finally {
       setTimeout(() => setBusy(null), 500)
     }

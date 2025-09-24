@@ -31,6 +31,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
       path: "/api/socket.io",
     })
     global.ioInstance = io
+    console.log("[socket.io] initialized at /api/socket.io")
 
     const store = getStore()
 
@@ -86,6 +87,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
 
     if (!global.ioConnectionHandlerBound) {
       io.on("connection", (socket) => {
+        console.log("[socket.io] client connected", { id: socket.id })
         try {
           // Send merged status so UI sees DB lights even if device hasn't posted yet
           Promise.resolve(buildMergedStatus()).then((merged) => {
@@ -96,6 +98,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
         socket.on("cmd", (body) => {
           try {
             if (!body || typeof body !== "object") return
+            console.log("[socket.io] cmd from UI", body)
             // Handle catalog mutations from UI
               if (body.action === "add_light") {
                 // Expect: { action:"add_light", name, pin, on, off, scheduleEnabled }
@@ -151,6 +154,10 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
             socket.emit("cmd_ack", { ok: true })
           } catch {}
         })
+
+        socket.on("disconnect", (reason) => {
+          console.log("[socket.io] client disconnected", { id: socket.id, reason })
+        })
       })
       global.ioConnectionHandlerBound = true
     }
@@ -158,6 +165,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
     // Initialize plain WebSocket server (for ESP32)
     if (!global.wsInstance) {
       const wss = new WebSocketServer({ noServer: true })
+      console.log("[ws] raw WebSocket server initialized at /api/ws")
       // Upgrade handler
       const server = res.socket.server
       if (!(server as any)._wsUpgraded) {
@@ -168,13 +176,16 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
             const token = url.searchParams.get("token") || ""
             const valid = (process.env.LIGHTLINK_TOKEN || process.env.NEXT_PUBLIC_LIGHTLINK_TOKEN || "devtoken")
             if (token !== valid) {
+              console.warn("[ws] upgrade rejected: invalid token", { tokenPresent: !!token })
               socket.destroy()
               return
             }
+            console.log("[ws] upgrade accepted", { ip: req.socket?.remoteAddress })
             wss.handleUpgrade(req, socket, head, (ws) => {
               wss.emit("connection", ws, req)
             })
           } catch {
+            console.error("[ws] upgrade error")
             try { socket.destroy() } catch {}
           }
         })
@@ -182,6 +193,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
       }
 
       wss.on("connection", (ws) => {
+        console.log("[ws] device connected", { clients: wss.clients.size })
         // Send current status immediately
         try {
           const cur = store.getStatus()
@@ -193,12 +205,18 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
             const text = typeof data === "string" ? data : data.toString("utf8")
             const obj = JSON.parse(text)
             if (obj?.type === "status" && obj.payload) {
+              console.log("[ws] status received from device")
               store.setStatus(obj.payload)
             } else if (obj?.type === "cmd" && obj.payload) {
+              console.log("[ws] cmd received from device", obj.payload)
               const body = obj.payload
               store.enqueueCmd(body)
             }
           } catch {}
+        })
+
+        ws.on("close", () => {
+          console.log("[ws] device disconnected", { clients: wss.clients.size })
         })
       })
       global.wsInstance = wss
