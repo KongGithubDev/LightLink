@@ -231,7 +231,7 @@ export default function LightScheduler() {
 
       {entries.map((l) => (
         <Card key={l.name} className="p-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               {l.state ? (
                 <Lightbulb className="w-4 h-4 text-yellow-400" />
@@ -249,14 +249,14 @@ export default function LightScheduler() {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               <div className="flex items-center gap-2">
                 <Label className="text-xs">On</Label>
-                <TimeInput24 value={l.on || "00:00"} onChange={(v) => setLightField(l.name, "on", v)} disabled={false} className="h-8 w-28" />
+                <TimeInput24 value={l.on || "00:00"} onChange={(v) => setLightField(l.name, "on", v)} disabled={false} className="h-8 w-20 sm:w-28" />
               </div>
               <div className="flex items-center gap-2">
                 <Label className="text-xs">Off</Label>
-                <TimeInput24 value={l.off || "00:00"} onChange={(v) => setLightField(l.name, "off", v)} disabled={false} className="h-8 w-28" />
+                <TimeInput24 value={l.off || "00:00"} onChange={(v) => setLightField(l.name, "off", v)} disabled={false} className="h-8 w-20 sm:w-28" />
               </div>
               <div className="flex items-center gap-2">
                 <Label className="text-xs">Schedule</Label>
@@ -300,11 +300,11 @@ export default function LightScheduler() {
             </div>
             <div>
               <Label className="text-xs">On</Label>
-              <TimeInput24 value={form.on} onChange={(v) => setForm({ ...form, on: v })} className="h-9" disabled={availablePins.length === 0} />
+              <TimeInput24 value={form.on} onChange={(v) => setForm({ ...form, on: v })} className="h-9 w-full sm:w-28" disabled={availablePins.length === 0} />
             </div>
             <div>
               <Label className="text-xs">Off</Label>
-              <TimeInput24 value={form.off} onChange={(v) => setForm({ ...form, off: v })} className="h-9" disabled={availablePins.length === 0} />
+              <TimeInput24 value={form.off} onChange={(v) => setForm({ ...form, off: v })} className="h-9 w-full sm:w-28" disabled={availablePins.length === 0} />
             </div>
             <div className="flex items-center gap-2">
               <Label className="text-xs">Schedule</Label>

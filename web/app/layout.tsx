@@ -31,6 +31,14 @@ export const metadata: Metadata = {
   generator: "LightLink",
 }
 
+// Ensure mobile devices use proper viewport scaling and support notch safe areas
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+} as const
+
 export default function RootLayout({
   children,
 }: {
