@@ -91,12 +91,11 @@ void setup() {
   }
 
   // Now configure GPIO pins for loaded lights
-  for (size_t i = 0; i < NUM_LIGHTS; i++) {
-    pinMode(lights[i].pin, OUTPUT);
-    digitalWrite(lights[i].pin, LOW);
-  }
+  configurePinsForCurrentLights();
 
   // Connect WebSocket to server
+  delay(200);
+  warmupServer();
   delay(200);
   connectWebSocket();
 }
@@ -157,6 +156,29 @@ bool parseTimeHM(const char* s, int& h, int& m) {
 
 bool isAllowedPin(uint8_t p) {
   return (p == 19) || (p == 21) || (p == 22) || (p == 23);
+}
+
+void configurePinsForCurrentLights() {
+  for (size_t i = 0; i < NUM_LIGHTS; i++) {
+    pinMode(lights[i].pin, OUTPUT);
+    digitalWrite(lights[i].pin, lights[i].state ? HIGH : LOW);
+  }
+}
+
+void warmupServer() {
+  // Touch the Socket.IO API route to let the server initialize WS upgrade handler
+  if (WiFi.status() != WL_CONNECTED) return;
+  HTTPClient http;
+  String url = buildBaseUrl("/api/socket.io");
+  if (serverHost.startsWith("https://")) {
+    http.begin(secureClient, url);
+  } else {
+    http.begin(url);
+  }
+  // no need for auth here; endpoint just initializes server-side listeners
+  int code = http.GET();
+  Serial.print("Warmup /api/socket.io -> "); Serial.println(code);
+  http.end();
 }
 
 void clearLights() {
@@ -269,6 +291,19 @@ void handleJsonCommand(const String& json) {
     return;
   }
 
+  if (strcmp(action, "reload_lights") == 0) {
+    // Reload catalog from server and reconfigure pins
+    // Optionally turn off previous pins first to avoid ghost states
+    for (size_t i = 0; i < NUM_LIGHTS; i++) {
+      digitalWrite(lights[i].pin, LOW);
+    }
+    if (loadLightsFromServer()) {
+      configurePinsForCurrentLights();
+    }
+    sendStatusWS();
+    return;
+  }
+
   const char* action = doc["action"] | "";
   // For WS mode, translate get_status to sending current status over WS
   if (strcmp(action, "get_status") == 0) { sendStatusWS(); return; }
@@ -375,6 +410,8 @@ void connectWebSocket() {
     wsClient.begin(host.c_str(), serverPort, path.c_str());
   }
   wsClient.onEvent(wsEvent);
+  // Send ping every 15s, expect pong within 3s, allow 2 missed
+  wsClient.enableHeartbeat(15000, 3000, 2);
   wsClient.setReconnectInterval(3000);
 }
 

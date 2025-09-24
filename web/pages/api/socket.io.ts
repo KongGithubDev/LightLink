@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next"
 import { Server as IOServer } from "socket.io"
 import { getStore } from "@/lib/serverStore"
 import { WebSocketServer, WebSocket } from "ws"
+import { getCollection } from "@/lib/mongo"
 
 export const config = {
   api: {
@@ -89,11 +90,42 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
               cur.updatedAt = Date.now()
               store.setStatus(cur)
             } else {
-              // Hand off to device via polling queue
+              // Handle catalog mutations from UI
+              if (body.action === "add_light") {
+                // Expect: { action:"add_light", name, pin, on, off, scheduleEnabled }
+                const name = String(body.name || "").trim()
+                const pin = Number(body.pin)
+                const on = typeof body.on === "string" ? body.on : "00:00"
+                const off = typeof body.off === "string" ? body.off : "00:00"
+                const scheduleEnabled = !!body.scheduleEnabled
+                const allowed = new Set([19, 21, 22, 23])
+                if (!name || !Number.isInteger(pin) || !allowed.has(pin)) {
+                  socket.emit("cmd_ack", { ok: false, error: "invalid_add_light" })
+                  return
+                }
+                getCollection("lights").then(async (col) => {
+                  await col.updateOne({ name }, { $set: { name, pin, on, off, scheduleEnabled, updatedAt: Date.now() } }, { upsert: true })
+                  // Ask devices to reload lights
+                  try { store.broadcast({ type: "cmd", payload: { action: "reload_lights" } }) } catch {}
+                  socket.emit("cmd_ack", { ok: true })
+                }).catch(() => socket.emit("cmd_ack", { ok: false }))
+                return
+              }
+              if (body.action === "delete_light") {
+                // Expect: { action:"delete_light", name }
+                const name = String(body.name || "").trim()
+                if (!name) { socket.emit("cmd_ack", { ok: false, error: "invalid_delete_light" }); return }
+                getCollection("lights").then(async (col) => {
+                  await col.deleteOne({ name })
+                  try { store.broadcast({ type: "cmd", payload: { action: "reload_lights" } }) } catch {}
+                  socket.emit("cmd_ack", { ok: true })
+                }).catch(() => socket.emit("cmd_ack", { ok: false }))
+                return
+              }
+              // Non-catalog commands hand off to device queue and WS
               store.enqueueCmd(body)
+              try { store.broadcast({ type: "cmd", payload: body }) } catch {}
             }
-            // Broadcast command to all WS device clients via store subscription
-            try { store.broadcast({ type: "cmd", payload: body }) } catch {}
             // Optionally acknowledge
             socket.emit("cmd_ack", { ok: true })
           } catch {}
