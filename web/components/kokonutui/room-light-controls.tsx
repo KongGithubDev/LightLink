@@ -12,6 +12,7 @@ interface UILight {
   id: string // device name (e.g., "kitchen")
   label: string // pretty label
   isOn: boolean
+  pin?: number
 }
 
 interface RoomLightControlsProps {
@@ -39,7 +40,7 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
         const next: Record<string, UILight> = {}
         ;(payload.lights as any[]).forEach((l) => {
           const id = String(l.name)
-          next[id] = { id, label: prettyLabel(id), isOn: !!l.state }
+          next[id] = { id, label: prettyLabel(id), isOn: !!l.state, pin: typeof l.pin === 'number' ? l.pin : undefined }
         })
         setLights(next)
       }
@@ -112,6 +113,9 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
                   <LightbulbOff className="w-4 h-4 text-muted-foreground" />
                 )}
                 <span className="font-medium text-sm">{room.label}</span>
+                {typeof room.pin === 'number' && (
+                  <span className="text-xs text-muted-foreground">(PIN {room.pin})</span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <Switch checked={room.isOn} onCheckedChange={(v) => toggleLight(room.id, v)} />

@@ -71,6 +71,7 @@ export default function LightScheduler() {
         const map: Record<string, string> = {
           invalid_add_light: "Add light failed: invalid name or pin.",
           pin_in_use: "This pin is already used by another light.",
+          pin_time_conflict: "Schedule overlaps with another light using the same pin.",
           invalid_delete_light: "Delete light failed: invalid name.",
         }
         toast({ title: "Failed", description: map[ack.error] || "Command failed.", variant: "destructive" as any })
