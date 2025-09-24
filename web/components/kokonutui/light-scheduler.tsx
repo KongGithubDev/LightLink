@@ -1,3 +1,19 @@
+  // Real-time 24h clock updated every second
+  const [nowStr, setNowStr] = useState<string>("--:--:--")
+  const [nowMinutes, setNowMinutes] = useState<number>(0)
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date()
+      const hh = String(d.getHours()).padStart(2, '0')
+      const mm = String(d.getMinutes()).padStart(2, '0')
+      const ss = String(d.getSeconds()).padStart(2, '0')
+      setNowStr(`${hh}:${mm}:${ss}`)
+      setNowMinutes(d.getHours() * 60 + d.getMinutes())
+    }
+    tick()
+    const t = setInterval(tick, 1000)
+    return () => clearInterval(t)
+  }, [])
 "use client"
 
 import { useEffect, useRef, useState } from "react"
@@ -26,6 +42,7 @@ export default function LightScheduler() {
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const socketRef = useRef<Socket | null>(null)
   const wsConnectedRef = useRef(false)
+  const [wsConnected, setWsConnected] = useState(false)
   const [form, setForm] = useState({ name: "", pin: 19, on: "18:00", off: "23:00", scheduleEnabled: false })
   const [busy, setBusy] = useState<string | null>(null)
   const { toast } = useToast()
@@ -53,11 +70,13 @@ export default function LightScheduler() {
     }
     const onConnect = () => {
       wsConnectedRef.current = true
+      setWsConnected(true)
       // Ask for current status on connect
       try { socket.emit("cmd", { action: "get_status" }) } catch {}
     }
     const onDisconnect = () => {
       wsConnectedRef.current = false
+      setWsConnected(false)
     }
     const onError = () => {
       // noop; rely purely on ws
@@ -114,6 +133,10 @@ export default function LightScheduler() {
   const saveSchedule = async (id: string) => {
     const L = lights[id]
     if (!L) return
+    if (!L.scheduleEnabled) {
+      toast({ title: "Schedule is disabled", description: "Enable the schedule switch to activate these times.", variant: "destructive" as any })
+      return
+    }
     setSaving((s) => ({ ...s, [id]: true }))
     try {
       const payload = {
@@ -124,6 +147,8 @@ export default function LightScheduler() {
         enabled: !!L.scheduleEnabled,
       }
       socketRef.current?.emit("cmd", payload)
+      // Ask for status to reflect immediate device-side application
+      try { socketRef.current?.emit("cmd", { action: "get_status" }) } catch {}
     } finally {
       setTimeout(() => setSaving((s) => ({ ...s, [id]: false })), 500)
     }
@@ -178,6 +203,11 @@ export default function LightScheduler() {
 
   return (
     <div className="w-full space-y-3">
+      {/* WS status and realtime 24h clock */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <div>WS: {wsConnected ? <span className="text-green-600">connected</span> : <span className="text-red-600">disconnected</span>}</div>
+        <div>Time: <span className="font-mono">{nowStr}</span></div>
+      </div>
       {/* Header with summary and Toggle All */}
       <div className="flex justify-between items-center">
         <span className="text-sm text-muted-foreground">
@@ -204,15 +234,21 @@ export default function LightScheduler() {
               {typeof l.pin === 'number' && (
                 <span className="text-xs text-muted-foreground">(PIN {l.pin})</span>
               )}
+              {/* In-schedule badge */}
+              {l.scheduleEnabled && (
+                <span className={`text-[11px] px-2 py-0.5 rounded-full ${isInSchedule(l, nowMinutes) ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                  {isInSchedule(l, nowMinutes) ? 'In schedule' : 'Out of schedule'}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <Label className="text-xs">On</Label>
-                <Input type="time" className="h-8 w-28" value={l.on || "00:00"} onChange={(e) => setLightField(l.name, "on", e.target.value)} />
+                <Input type="time" step={60} inputMode="numeric" pattern="[0-2][0-9]:[0-5][0-9]" placeholder="HH:MM" className="h-8 w-28" value={l.on || "00:00"} onChange={(e) => setLightField(l.name, "on", e.target.value)} />
               </div>
               <div className="flex items-center gap-2">
                 <Label className="text-xs">Off</Label>
-                <Input type="time" className="h-8 w-28" value={l.off || "00:00"} onChange={(e) => setLightField(l.name, "off", e.target.value)} />
+                <Input type="time" step={60} inputMode="numeric" pattern="[0-2][0-9]:[0-5][0-9]" placeholder="HH:MM" className="h-8 w-28" value={l.off || "00:00"} onChange={(e) => setLightField(l.name, "off", e.target.value)} />
               </div>
               <div className="flex items-center gap-2">
                 <Label className="text-xs">Schedule</Label>
@@ -256,11 +292,11 @@ export default function LightScheduler() {
             </div>
             <div>
               <Label className="text-xs">On</Label>
-              <Input type="time" value={form.on} onChange={(e) => setForm({ ...form, on: e.target.value })} className="h-9" disabled={availablePins.length === 0} />
+              <Input type="time" step={60} inputMode="numeric" pattern="[0-2][0-9]:[0-5][0-9]" placeholder="HH:MM" value={form.on} onChange={(e) => setForm({ ...form, on: e.target.value })} className="h-9" disabled={availablePins.length === 0} />
             </div>
             <div>
               <Label className="text-xs">Off</Label>
-              <Input type="time" value={form.off} onChange={(e) => setForm({ ...form, off: e.target.value })} className="h-9" disabled={availablePins.length === 0} />
+              <Input type="time" step={60} inputMode="numeric" pattern="[0-2][0-9]:[0-5][0-9]" placeholder="HH:MM" value={form.off} onChange={(e) => setForm({ ...form, off: e.target.value })} className="h-9" disabled={availablePins.length === 0} />
             </div>
             <div className="flex items-center gap-2">
               <Label className="text-xs">Schedule</Label>

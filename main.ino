@@ -417,6 +417,15 @@ void handleJsonCommand(const String& json) {
     }
     lights[idx].scheduleEnabled = en;
 
+    // Immediately evaluate and apply state based on the new schedule
+    struct tm timeinfo2;
+    if (getLocalTime(&timeinfo2)) {
+      int curMinute = timeinfo2.tm_hour * 60 + timeinfo2.tm_min;
+      bool shouldBeOn = lights[idx].scheduleEnabled && isWithinSchedule(lights[idx], curMinute);
+      if (shouldBeOn != lights[idx].state) {
+        applyLightState((size_t)idx, shouldBeOn);
+      }
+    }
     sendStatusWS();
     return;
   }
