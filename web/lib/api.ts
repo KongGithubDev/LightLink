@@ -23,3 +23,35 @@ export async function sendCommand(cmd: any) {
   const res = await apiFetch("/api/cmd", { method: "POST", body: JSON.stringify(cmd) })
   return res.json()
 }
+
+// Lights CRUD
+export type LightDoc = {
+  name: string
+  pin: number
+  on?: string
+  off?: string
+  scheduleEnabled?: boolean
+}
+
+export async function listLights(): Promise<{ lights: LightDoc[] }> {
+  const res = await apiFetch("/api/lights", { method: "GET" })
+  return res.json()
+}
+
+export async function createLight(doc: LightDoc) {
+  const res = await apiFetch("/api/lights", { method: "POST", body: JSON.stringify(doc) })
+  return res.json()
+}
+
+export async function updateLight(name: string, patch: Partial<LightDoc>) {
+  const res = await apiFetch(`/api/lights/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  })
+  return res.json()
+}
+
+export async function deleteLight(name: string) {
+  const res = await apiFetch(`/api/lights/${encodeURIComponent(name)}`, { method: "DELETE" })
+  return res.json()
+}

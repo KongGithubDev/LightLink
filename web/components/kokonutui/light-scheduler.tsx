@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Clock } from "lucide-react"
-import { getStatus, sendCommand } from "@/lib/api"
 import { io, Socket } from "socket.io-client"
 
 type DeviceLight = {
@@ -21,45 +20,10 @@ type DeviceLight = {
 export default function LightScheduler() {
   const [lights, setLights] = useState<Record<string, DeviceLight>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const socketRef = useRef<Socket | null>(null)
   const wsConnectedRef = useRef(false)
 
-  const refresh = async () => {
-    try {
-      const data = await getStatus()
-      if (Array.isArray(data?.lights)) {
-        const next: Record<string, DeviceLight> = {}
-        ;(data.lights as any[]).forEach((l) => {
-          const id = String(l.name)
-          next[id] = {
-            name: id,
-            state: !!l.state,
-            on: l.on,
-            off: l.off,
-            scheduleEnabled: !!l.scheduleEnabled,
-          }
-        })
-        setLights(next)
-      }
-    } catch {}
-  }
-
   useEffect(() => {
-    const startPolling = () => {
-      if (pollRef.current) return
-      pollRef.current = setInterval(refresh, 3000)
-    }
-    const stopPolling = () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current)
-        pollRef.current = null
-      }
-    }
-
-    // initial load
-    refresh()
-
     // connect websocket
     const socket: Socket = io(undefined, { path: "/api/socket.io", transports: ["websocket", "polling"] })
     socketRef.current = socket
@@ -81,14 +45,12 @@ export default function LightScheduler() {
     }
     const onConnect = () => {
       wsConnectedRef.current = true
-      stopPolling()
     }
     const onDisconnect = () => {
       wsConnectedRef.current = false
-      startPolling()
     }
     const onError = () => {
-      if (!wsConnectedRef.current) startPolling()
+      // noop; rely purely on ws
     }
 
     socket.on("connect", onConnect)
@@ -96,13 +58,7 @@ export default function LightScheduler() {
     socket.on("connect_error", onError)
     socket.on("status", onStatus)
 
-    const t = setTimeout(() => {
-      if (!wsConnectedRef.current) startPolling()
-    }, 4000)
-
     return () => {
-      clearTimeout(t)
-      stopPolling()
       socket.off("connect", onConnect)
       socket.off("disconnect", onDisconnect)
       socket.off("connect_error", onError)
@@ -128,8 +84,7 @@ export default function LightScheduler() {
         off: L.off || "00:00",
         enabled: !!L.scheduleEnabled,
       }
-      await sendCommand(payload)
-      await refresh()
+      socketRef.current?.emit("cmd", payload)
     } finally {
       setTimeout(() => setSaving((s) => ({ ...s, [id]: false })), 500)
     }

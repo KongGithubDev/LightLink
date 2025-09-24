@@ -2,6 +2,7 @@ import { Clock, Wifi, Home } from "lucide-react"
 import RoomLightControls from "./room-light-controls"
 import LightScheduler from "./light-scheduler"
 import MqttStatus from "./mqtt-status"
+import LightsManager from "./lights-manager"
 
 export default function () {
   return (
@@ -33,6 +34,14 @@ export default function () {
           Light Scheduling
         </h2>
         <LightScheduler />
+      </div>
+
+      <div className="bg-white dark:bg-[#0F0F12] rounded-xl p-6 flex flex-col items-start justify-start border border-gray-200 dark:border-[#1F1F23]">
+        <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 text-left flex items-center gap-2">
+          <Home className="w-3.5 h-3.5 text-zinc-900 dark:text-zinc-50" />
+          Manage Lights (MongoDB)
+        </h2>
+        <LightsManager />
       </div>
     </div>
   )

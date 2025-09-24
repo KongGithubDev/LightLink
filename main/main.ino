@@ -3,11 +3,10 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <time.h>
-#include <WebSocketsClient.h>
 
 // WiFi credentials
 const char* ssid = "Kong_Wifi";
-const char* password = "Password";
+const char* password = "0651166902z";
 
 // Server API (Production: set to your domain with HTTPS)
 String serverHost = "https://lightlink.kongwatcharapong.in.th"; // e.g., https://your-domain
@@ -16,8 +15,6 @@ String authToken = "KongPassword@";                           // Must match LIGH
 
 // Optional: TLS setup
 WiFiClientSecure secureClient;
-WebSocketsClient wsClient;
-bool wsConnected = false;
 // If you have your server's root CA, set it here for certificate pinning.
 // const char* rootCACert = R"CERT(
 // -----BEGIN CERTIFICATE-----
@@ -32,7 +29,7 @@ const int daylightOffset_sec = 0;
 
 // Light model
 struct Light {
-  char name[16];
+  const char* name;
   uint8_t pin;
   bool state;
   // Daily schedule (24h)
@@ -43,22 +40,25 @@ struct Light {
   bool scheduleEnabled;
 };
 
-// Dynamic lights loaded from server (with fallback defaults)
-const size_t MAX_LIGHTS = 10;
-Light lights[MAX_LIGHTS];
-size_t NUM_LIGHTS = 0;
-
-// Forward declarations
-bool loadLightsFromServer();
-void clearLights();
-bool parseTimeHM(const char* s, int& h, int& m);
-bool isAllowedPin(uint8_t p);
+Light lights[] = {
+  {"kitchen", 19, false, 18, 0, 23, 0, false},
+  {"living",  21, false, 18, 0, 23, 0, false},
+  {"bedroom", 22, false, 21, 0, 7,  0, false},
+  {"outdoor", 23, false, 21, 0, 7,  0, false}
+};
+const size_t NUM_LIGHTS = sizeof(lights) / sizeof(lights[0]);
 
 int lastCheckedMinute = -1; // to avoid re-applying schedule multiple times per minute
 
 void setup() {
   Serial.begin(115200);
   Serial.println("\nStarting LightLink...");
+
+  // Pins
+  for (size_t i = 0; i < NUM_LIGHTS; i++) {
+    pinMode(lights[i].pin, OUTPUT);
+    digitalWrite(lights[i].pin, LOW);
+  }
 
   // WiFi
   WiFi.begin(ssid, password);
@@ -85,20 +85,9 @@ void setup() {
   // secureClient.setCACert(rootCACert);
   secureClient.setInsecure();
 
-  // Load lights configuration from server (MongoDB)
-  if (!loadLightsFromServer()) {
-    Serial.println("Load lights from server failed, no lights configured");
-  }
-
-  // Now configure GPIO pins for loaded lights
-  for (size_t i = 0; i < NUM_LIGHTS; i++) {
-    pinMode(lights[i].pin, OUTPUT);
-    digitalWrite(lights[i].pin, LOW);
-  }
-
-  // Connect WebSocket to server
-  delay(200);
-  connectWebSocket();
+  // Initial status push
+  delay(500);
+  postStatus();
 }
 
 void applyLightState(size_t idx, bool on) {
@@ -133,7 +122,7 @@ void checkAndApplySchedules() {
     bool shouldBeOn = isWithinSchedule(lights[i], curMinute);
     if (shouldBeOn != lights[i].state) {
       applyLightState(i, shouldBeOn);
-      sendStatusWS();
+      postStatus();
     }
   }
 }
@@ -147,95 +136,13 @@ String buildBaseUrl(const String& path) {
   return serverHost + ":" + String(serverPort) + path;
 }
 
-bool parseTimeHM(const char* s, int& h, int& m) {
-  if (!s || strlen(s) < 4) return false;
-  int hh = atoi(String(s).substring(0, 2).c_str());
-  int mm = atoi(String(s).substring(3, 5).c_str());
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return false;
-  h = hh; m = mm; return true;
-}
-
-bool isAllowedPin(uint8_t p) {
-  return (p == 19) || (p == 21) || (p == 22) || (p == 23);
-}
-
-void clearLights() {
-  NUM_LIGHTS = 0;
-  for (size_t i = 0; i < MAX_LIGHTS; i++) {
-    lights[i].name[0] = '\0';
-    lights[i].pin = 0;
-    lights[i].state = false;
-    lights[i].onHour = 0; lights[i].onMin = 0; lights[i].offHour = 0; lights[i].offMin = 0;
-    lights[i].scheduleEnabled = false;
-  }
-}
-
-bool loadLightsFromServer() {
-  if (WiFi.status() != WL_CONNECTED) return false;
+void postStatus() {
+  if (WiFi.status() != WL_CONNECTED) return;
   HTTPClient http;
-  String url = buildBaseUrl("/api/lights");
-  if (serverHost.startsWith("https://")) {
-    http.begin(secureClient, url);
-  } else {
-    http.begin(url);
-  }
-  http.addHeader("Authorization", String("Bearer ") + authToken);
-  int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    Serial.print("GET /api/lights -> "); Serial.println(code);
-    http.end();
-    return false;
-  }
-  String resp = http.getString();
-  http.end();
 
-  DynamicJsonDocument doc(4096);
-  DeserializationError err = deserializeJson(doc, resp);
-  if (err) {
-    Serial.print("/api/lights JSON error: "); Serial.println(err.c_str());
-    return false;
-  }
-  JsonArray arr = doc["lights"].as<JsonArray>();
-  if (arr.isNull()) return false;
-
-  clearLights();
-  for (JsonObject o : arr) {
-    if (NUM_LIGHTS >= MAX_LIGHTS) break;
-    const char* name = o["name"] | nullptr;
-    int pin = o["pin"] | -1;
-    const char* onStr = o["on"] | "00:00";
-    const char* offStr = o["off"] | "00:00";
-    bool sched = o["scheduleEnabled"] | false;
-    if (!name || pin < 0) continue;
-    if (!isAllowedPin((uint8_t)pin)) {
-      Serial.print("Skipping disallowed pin: "); Serial.println(pin);
-      continue;
-    }
-
-    Light L;
-    strncpy(L.name, name, sizeof(L.name) - 1);
-    L.name[sizeof(L.name) - 1] = '\0';
-    L.pin = (uint8_t)pin;
-    L.state = false;
-    int oh=0, om=0, fh=0, fm=0;
-    if (!parseTimeHM(onStr, oh, om)) { oh = 0; om = 0; }
-    if (!parseTimeHM(offStr, fh, fm)) { fh = 0; fm = 0; }
-    L.onHour = oh; L.onMin = om; L.offHour = fh; L.offMin = fm;
-    L.scheduleEnabled = sched;
-    lights[NUM_LIGHTS++] = L;
-  }
-  Serial.print("Loaded lights: "); Serial.println(NUM_LIGHTS);
-  return NUM_LIGHTS > 0;
-}
-
-void sendStatusWS() {
-  if (!wsConnected) return;
-  StaticJsonDocument<768> payload;
-  payload["type"] = "status";
-  JsonObject p = payload.createNestedObject("payload");
-  p["device"] = "esp32-lightlink";
-  p["updatedAt"] = (long)millis();
-  JsonArray arr = p.createNestedArray("lights");
+  StaticJsonDocument<512> doc;
+  doc["device"] = "esp32-lightlink";
+  JsonArray arr = doc.createNestedArray("lights");
   for (size_t i = 0; i < NUM_LIGHTS; i++) {
     JsonObject o = arr.createNestedObject();
     o["name"] = lights[i].name;
@@ -248,9 +155,20 @@ void sendStatusWS() {
     o["on"] = onbuf;
     o["off"] = offbuf;
   }
-  String out;
-  serializeJson(payload, out);
-  wsClient.sendTXT(out);
+  String payload;
+  serializeJson(doc, payload);
+
+  String url = buildBaseUrl("/api/status");
+  if (serverHost.startsWith("https://")) {
+    http.begin(secureClient, url);
+  } else {
+    http.begin(url);
+  }
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + authToken);
+  int code = http.POST(payload);
+  Serial.print("POST /api/status -> "); Serial.println(code);
+  http.end();
 }
 
 int findLightIndexByName(const String& name) {
@@ -271,8 +189,6 @@ void handleJsonCommand(const String& json) {
 
   const char* action = doc["action"] | "";
   if (strcmp(action, "get_status") == 0) { postStatus(); return; }
-  // For WS mode, translate get_status to sending current status over WS
-  if (strcmp(action, "get_status") == 0) { sendStatusWS(); return; }
 
   if (strcmp(action, "set") == 0 || strcmp(action, "toggle") == 0) {
     // { action: "set", target: "kitchen"|"living"|"bedroom"|"all", state: true/false }
@@ -322,7 +238,7 @@ void handleJsonCommand(const String& json) {
     }
     lights[idx].scheduleEnabled = en;
 
-    sendStatusWS();
+    postStatus();
     return;
   }
 
@@ -330,58 +246,43 @@ void handleJsonCommand(const String& json) {
   Serial.println(action);
 }
 
-// WebSocket helpers
-String extractHost(const String& url) {
-  if (url.startsWith("https://")) return url.substring(8);
-  if (url.startsWith("http://")) return url.substring(7);
-  return url;
-}
-
-void wsEvent(WStype_t type, uint8_t * payload, size_t length) {
-  switch (type) {
-    case WStype_CONNECTED:
-      wsConnected = true;
-      Serial.println("WS connected");
-      sendStatusWS();
-      break;
-    case WStype_DISCONNECTED:
-      wsConnected = false;
-      Serial.println("WS disconnected");
-      break;
-    case WStype_TEXT: {
-      String msg = String((const char*)payload).substring(0, length);
-      StaticJsonDocument<1024> doc;
-      if (deserializeJson(doc, msg) == DeserializationError::Ok) {
-        const char* typeStr = doc["type"] | "";
-        if (strcmp(typeStr, "cmd") == 0) {
-          String cmdStr; serializeJson(doc["payload"], cmdStr);
-          handleJsonCommand(cmdStr);
-        }
-        // status messages from server are ignored by device
-      }
-    } break;
-    default: break;
-  }
-}
-
-void connectWebSocket() {
-  String host = extractHost(serverHost);
-  int slash = host.indexOf('/');
-  if (slash >= 0) host = host.substring(0, slash);
-  String path = String("/api/ws?token=") + authToken;
-  bool isHttps = serverHost.startsWith("https://");
-  if (isHttps) {
-    wsClient.beginSSL(host.c_str(), serverPort, path.c_str());
+void pollCommandsOnce() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  HTTPClient http;
+  String url = buildBaseUrl("/api/poll");
+  if (serverHost.startsWith("https://")) {
+    http.begin(secureClient, url);
   } else {
-    wsClient.begin(host.c_str(), serverPort, path.c_str());
+    http.begin(url);
   }
-  wsClient.onEvent(wsEvent);
-  wsClient.setReconnectInterval(3000);
+  http.addHeader("Authorization", String("Bearer ") + authToken);
+  int code = http.GET();
+  if (code == HTTP_CODE_OK) {
+    String resp = http.getString();
+    StaticJsonDocument<1024> doc;
+    if (deserializeJson(doc, resp) == DeserializationError::Ok) {
+      JsonArray cmds = doc["cmds"].as<JsonArray>();
+      for (JsonVariant v : cmds) {
+        String cmd;
+        serializeJson(v, cmd);
+        Serial.print("CMD: "); Serial.println(cmd);
+        handleJsonCommand(cmd);
+      }
+    }
+  } else {
+    Serial.print("GET /api/poll -> "); Serial.println(code);
+  }
+  http.end();
 }
 
 void loop() {
-  // WebSocket loop
-  wsClient.loop();
+  // Poll commands
+  static unsigned long lastPoll = 0;
+  unsigned long now = millis();
+  if (now - lastPoll > 1000) { // every 1s
+    lastPoll = now;
+    pollCommandsOnce();
+  }
 
   // Apply schedules once per minute
   checkAndApplySchedules();

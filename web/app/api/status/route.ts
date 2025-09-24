@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getStore, type DeviceStatus } from "@/lib/serverStore"
+import { getCollection } from "@/lib/mongo"
 
 function authorize(req: NextRequest) {
   const token = process.env.LIGHTLINK_TOKEN || process.env.NEXT_PUBLIC_LIGHTLINK_TOKEN || "devtoken"
@@ -52,5 +53,45 @@ export async function GET(req: NextRequest) {
     store.setStatus(mock)
     cur = mock
   }
-  return NextResponse.json(cur || { device: "unknown", lights: [] })
+  // Merge DB lights catalog so the UI can display/manage lights even if the device hasn't posted yet
+  try {
+    const col = await getCollection("lights")
+    const catalog = await col.find({}, { projection: { _id: 0 } }).toArray()
+    const byName = new Map<string, any>()
+    const merged = { device: cur?.device || "unknown", lights: [] as any[], updatedAt: cur?.updatedAt || Date.now() }
+    for (const l of cur?.lights || []) {
+      byName.set(l.name, { ...l })
+    }
+    for (const c of catalog) {
+      const existing = byName.get(c.name)
+      if (existing) {
+        // fill schedule fields from device first, otherwise keep DB defaults
+        merged.lights.push({
+          name: existing.name,
+          state: !!existing.state,
+          on: (existing as any).on ?? c.on ?? "00:00",
+          off: (existing as any).off ?? c.off ?? "00:00",
+          scheduleEnabled: typeof (existing as any).scheduleEnabled === "boolean" ? (existing as any).scheduleEnabled : !!c.scheduleEnabled,
+        })
+      } else {
+        merged.lights.push({
+          name: c.name,
+          state: false,
+          on: c.on || "00:00",
+          off: c.off || "00:00",
+          scheduleEnabled: !!c.scheduleEnabled,
+        })
+      }
+    }
+    // Include any device lights that are not in DB as well
+    for (const l of cur?.lights || []) {
+      if (!catalog.find((c: any) => c.name === l.name)) {
+        merged.lights.push(l)
+      }
+    }
+    return NextResponse.json(merged)
+  } catch {
+    // If DB fails, return current store status
+    return NextResponse.json(cur || { device: "unknown", lights: [] })
+  }
 }

@@ -6,7 +6,6 @@ import { Card } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Lightbulb, LightbulbOff } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { getStatus, sendCommand } from "@/lib/api"
 import { io, Socket } from "socket.io-client"
 
 interface UILight {
@@ -22,7 +21,6 @@ interface RoomLightControlsProps {
 export default function RoomLightControls({ className }: RoomLightControlsProps) {
   const [lights, setLights] = useState<Record<string, UILight>>({})
   const [logLines, setLogLines] = useState<string[]>([])
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const socketRef = useRef<Socket | null>(null)
   const wsConnectedRef = useRef(false)
 
@@ -31,40 +29,7 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     setLogLines((prev) => [`[${t}] ${msg}`, ...prev.slice(0, 19)])
   }
 
-  const refresh = async () => {
-    try {
-      const data = await getStatus()
-      if (Array.isArray(data?.lights)) {
-        const next: Record<string, UILight> = {}
-        ;(data.lights as any[]).forEach((l) => {
-          const id = String(l.name)
-          next[id] = { id, label: prettyLabel(id), isOn: !!l.state }
-        })
-        setLights(next)
-      }
-    } catch (e) {
-      pushLog(`status error`)
-    }
-  }
-
   useEffect(() => {
-    // helpers
-    const startPolling = () => {
-      if (pollRef.current) return
-      pollRef.current = setInterval(refresh, 2000)
-      pushLog("polling: /api/status")
-    }
-    const stopPolling = () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current)
-        pollRef.current = null
-        pushLog("polling stopped")
-      }
-    }
-
-    // initial fetch
-    refresh()
-
     // attempt websocket
     const socket: Socket = io(undefined, { path: "/api/socket.io", transports: ["websocket", "polling"] })
     socketRef.current = socket
@@ -82,18 +47,13 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     const onConnect = () => {
       wsConnectedRef.current = true
       pushLog("ws connected")
-      stopPolling()
     }
     const onDisconnect = () => {
       wsConnectedRef.current = false
-      pushLog("ws disconnected -> fallback polling")
-      startPolling()
+      pushLog("ws disconnected")
     }
     const onError = () => {
-      if (!wsConnectedRef.current) {
-        pushLog("ws error -> start polling")
-        startPolling()
-      }
+      if (!wsConnectedRef.current) pushLog("ws error")
     }
 
     socket.on("connect", onConnect)
@@ -101,14 +61,7 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     socket.on("connect_error", onError)
     socket.on("status", onStatus)
 
-    // safety timeout: if not connected within 4s, start polling
-    const t = setTimeout(() => {
-      if (!wsConnectedRef.current) startPolling()
-    }, 4000)
-
     return () => {
-      clearTimeout(t)
-      stopPolling()
       socket.off("connect", onConnect)
       socket.off("disconnect", onDisconnect)
       socket.off("connect_error", onError)
@@ -120,16 +73,14 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
 
   const toggleLight = async (id: string, newState: boolean) => {
     setLights((prev) => ({ ...prev, [id]: { ...prev[id], isOn: newState } }))
-    await sendCommand({ action: "set", target: id, state: newState })
-    pushLog(`cmd set ${id} -> ${newState}`)
-    // server will be polled to confirm
+    socketRef.current?.emit("cmd", { action: "set", target: id, state: newState })
+    pushLog(`cmd(set) ${id} -> ${newState}`)
   }
 
   const toggleAll = async () => {
     const allOn = Object.values(lights).every((l) => l.isOn)
-    await sendCommand({ action: "set", target: "all", state: !allOn })
-    pushLog(`cmd set all -> ${!allOn}`)
-    refresh()
+    socketRef.current?.emit("cmd", { action: "set", target: "all", state: !allOn })
+    pushLog(`cmd(set) all -> ${!allOn}`)
   }
 
   const onCount = Object.values(lights).filter((l) => l.isOn).length
