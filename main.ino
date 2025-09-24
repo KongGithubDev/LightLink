@@ -18,6 +18,8 @@ String authToken = "KongPassword@";                           // Must match LIGH
 WiFiClientSecure secureClient;
 WebSocketsClient wsClient;
 bool wsConnected = false;
+unsigned long nextWsReconnectAt = 0;
+uint8_t wsReconnectAttempts = 0;
 // If you have your server's root CA, set it here for certificate pinning.
 // const char* rootCACert = R"CERT(
 // -----BEGIN CERTIFICATE-----
@@ -293,6 +295,31 @@ void handleJsonCommand(const String& json) {
     return;
   }
 
+  if (strcmp(action, "set_pin") == 0) {
+    // { action:"set_pin", pin: 19|21|22|23, state: true/false }
+    int pin = doc["pin"] | -1;
+    bool state = doc["state"] | false;
+    if (isAllowedPin((uint8_t)pin)) {
+      // Apply to any known lights sharing this pin
+      bool any = false;
+      for (size_t i = 0; i < NUM_LIGHTS; i++) {
+        if (lights[i].pin == (uint8_t)pin) {
+          applyLightState(i, state);
+          any = true;
+        }
+      }
+      // If none known, still drive the GPIO
+      if (!any) {
+        pinMode((uint8_t)pin, OUTPUT);
+        digitalWrite((uint8_t)pin, state ? HIGH : LOW);
+      }
+      sendStatusWS();
+    }
+    return;
+  }
+
+  const char* action = doc["action"] | "";
+
   if (strcmp(action, "reload_lights") == 0) {
     // Reload catalog from server and reconfigure pins
     // Optionally turn off previous pins first to avoid ghost states
@@ -306,7 +333,6 @@ void handleJsonCommand(const String& json) {
     return;
   }
 
-  const char* action = doc["action"] | "";
   // For WS mode, translate get_status to sending current status over WS
   if (strcmp(action, "get_status") == 0) { sendStatusWS(); return; }
 
@@ -380,12 +406,19 @@ void wsEvent(WStype_t type, uint8_t * payload, size_t length) {
     case WStype_CONNECTED:
       wsConnected = true;
       Serial.println("WS connected");
+      wsReconnectAttempts = 0;
       sendStatusWS();
       break;
-    case WStype_DISCONNECTED:
+    case WStype_DISCONNECTED: {
       wsConnected = false;
       Serial.println("WS disconnected");
+      // schedule a reconnect attempt with backoff
+      unsigned long delayMs = 2000UL * (1UL << (wsReconnectAttempts > 4 ? 4 : wsReconnectAttempts));
+      if (delayMs > 30000UL) delayMs = 30000UL;
+      nextWsReconnectAt = millis() + delayMs;
+      if (wsReconnectAttempts < 10) wsReconnectAttempts++;
       break;
+    }
     case WStype_TEXT: {
       String msg = String((const char*)payload).substring(0, length);
       Serial.print("WS text received, bytes="); Serial.println(length);
@@ -425,6 +458,26 @@ void connectWebSocket() {
 void loop() {
   // WebSocket loop
   wsClient.loop();
+
+  // Reconnect logic if server has restarted or connection dropped
+  if (!wsConnected && nextWsReconnectAt != 0 && (long)(millis() - nextWsReconnectAt) >= 0) {
+    if (WiFi.status() != WL_CONNECTED) {
+      // try to rejoin WiFi
+      Serial.println("WiFi disconnected, reconnecting...");
+      WiFi.disconnect();
+      WiFi.begin(ssid, password);
+      unsigned long t0 = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - t0 < 5000) { delay(200); Serial.print("."); }
+      Serial.println();
+    }
+    // warm up server route so WS upgrade handlers are ready after restarts
+    warmupServer();
+    // force close and begin again
+    wsClient.disconnect();
+    delay(100);
+    connectWebSocket();
+    nextWsReconnectAt = 0; // wait for event callbacks to reschedule if needed
+  }
 
   // Apply schedules once per minute
   checkAndApplySchedules();

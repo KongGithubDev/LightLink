@@ -88,6 +88,20 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     pushLog(`cmd(set) all -> ${!allOn}`)
   }
 
+  // --- PIN controls ---
+  const allowedPins = [19, 21, 22, 23]
+  const pinState: Record<number, boolean> = {}
+  for (const p of allowedPins) pinState[p] = false
+  for (const L of Object.values(lights)) {
+    if (typeof L.pin === 'number' && allowedPins.includes(L.pin)) {
+      pinState[L.pin] = pinState[L.pin] || L.isOn
+    }
+  }
+  const togglePin = (pin: number, next: boolean) => {
+    socketRef.current?.emit("cmd", { action: "set_pin", pin, state: next })
+    pushLog(`cmd(set_pin) ${pin} -> ${next}`)
+  }
+
   const onCount = Object.values(lights).filter((l) => l.isOn).length
   const total = Object.keys(lights).length
 
@@ -103,6 +117,21 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
       </div>
 
       <div className="space-y-3">
+        {/* PIN controls */}
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="font-medium text-sm">GPIO Pins</div>
+            <div className="flex items-center gap-4">
+              {allowedPins.map((p) => (
+                <div key={p} className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">PIN {p}</span>
+                  <Switch checked={!!pinState[p]} onCheckedChange={(v) => togglePin(p, v)} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+
         {Object.values(lights).map((room) => (
           <Card key={room.id} className="p-4">
             <div className="flex items-center justify-between">

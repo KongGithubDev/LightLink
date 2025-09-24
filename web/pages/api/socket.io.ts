@@ -96,84 +96,109 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
           })
         } catch {}
 
-        socket.on("cmd", (body) => {
+        socket.on("cmd", async (body) => {
           try {
             if (!body || typeof body !== "object") return
             console.log("[socket.io] cmd from UI", body)
             // Handle catalog mutations from UI
-              if (body.action === "add_light") {
-                // Expect: { action:"add_light", name, pin, on, off, scheduleEnabled }
-                const name = String(body.name || "").trim()
-                const pin = Number(body.pin)
-                const on = typeof body.on === "string" ? body.on : "00:00"
-                const off = typeof body.off === "string" ? body.off : "00:00"
-                const scheduleEnabled = !!body.scheduleEnabled
-                const allowed = new Set([19, 21, 22, 23])
-                if (!name || !Number.isInteger(pin) || !allowed.has(pin)) {
-                  socket.emit("cmd_ack", { ok: false, error: "invalid_add_light" })
-                  return
+            if (body.action === "add_light") {
+              // Expect: { action:"add_light", name, pin, on, off, scheduleEnabled }
+              const name = String(body.name || "").trim()
+              const pin = Number(body.pin)
+              const on = typeof body.on === "string" ? body.on : "00:00"
+              const off = typeof body.off === "string" ? body.off : "00:00"
+              const scheduleEnabled = !!body.scheduleEnabled
+              const allowed = new Set([19, 21, 22, 23])
+              if (!name || !Number.isInteger(pin) || !allowed.has(pin)) {
+                socket.emit("cmd_ack", { ok: false, error: "invalid_add_light" })
+                return
+              }
+              try {
+                const col = await getCollection("lights")
+                // allow duplicate pins only if schedules do not overlap when enabled
+                const existing = await col.find({ pin }).toArray()
+                const parseHM = (s: string) => {
+                  const m = /^([0-2]?\d):(\d{2})$/.exec(s || "00:00");
+                  if (!m) return 0; const hh = Math.min(23, Math.max(0, parseInt(m[1]||"0",10))); const mm = Math.min(59, Math.max(0, parseInt(m[2]||"0",10))); return hh*60+mm;
                 }
-                getCollection("lights").then(async (col) => {
-                  // allow duplicate pins only if schedules do not overlap when enabled
-                  const existing = await col.find({ pin }).toArray()
-                  const parseHM = (s: string) => {
-                    const m = /^([0-2]?\d):(\d{2})$/.exec(s || "00:00");
-                    if (!m) return 0; const hh = Math.min(23, Math.max(0, parseInt(m[1]||"0",10))); const mm = Math.min(59, Math.max(0, parseInt(m[2]||"0",10))); return hh*60+mm;
+                const newOn = parseHM(on); const newOff = parseHM(off);
+                const newEn = !!scheduleEnabled;
+                const overlaps = (aOn: number, aOff: number, bOn: number, bOff: number) => {
+                  // handle wrap-around intervals
+                  const norm = (onMin: number, offMin: number) => offMin >= onMin ? [[onMin, offMin]] : [[onMin, 1440], [0, offMin]]
+                  const A = norm(aOn, aOff), B = norm(bOn, bOff)
+                  for (const [s1,e1] of A) for (const [s2,e2] of B) { if (Math.max(s1,s2) < Math.min(e1,e2)) return true }
+                  return false
+                }
+                for (const ex of existing) {
+                  const exEn = !!ex.scheduleEnabled
+                  if (!newEn || !exEn) continue
+                  const exOn = parseHM(ex.on || "00:00")
+                  const exOff = parseHM(ex.off || "00:00")
+                  if (overlaps(newOn, newOff, exOn, exOff) && ex.name !== name) {
+                    socket.emit("cmd_ack", { ok: false, error: "pin_time_conflict" })
+                    return
                   }
-                  const newOn = parseHM(on); const newOff = parseHM(off);
-                  const newEn = !!scheduleEnabled;
-                  const overlaps = (aOn: number, aOff: number, bOn: number, bOff: number) => {
-                    // handle wrap-around intervals
-                    const norm = (onMin: number, offMin: number) => offMin >= onMin ? [[onMin, offMin]] : [[onMin, 1440], [0, offMin]]
-                    const A = norm(aOn, aOff), B = norm(bOn, bOff)
-                    for (const [s1,e1] of A) for (const [s2,e2] of B) { if (Math.max(s1,s2) < Math.min(e1,e2)) return true }
-                    return false
-                  }
-                  for (const ex of existing) {
-                    const exEn = !!ex.scheduleEnabled
-                    if (!newEn || !exEn) continue
-                    const exOn = parseHM(ex.on || "00:00")
-                    const exOff = parseHM(ex.off || "00:00")
-                    if (overlaps(newOn, newOff, exOn, exOff) && ex.name !== name) {
-                      socket.emit("cmd_ack", { ok: false, error: "pin_time_conflict" })
-                      return
-                    }
-                  }
-                  await col.updateOne({ name }, { $set: { name, pin, on, off, scheduleEnabled, updatedAt: Date.now() } }, { upsert: true })
-                  // Broadcast merged status to UI immediately
+                }
+                await col.updateOne({ name }, { $set: { name, pin, on, off, scheduleEnabled, updatedAt: Date.now() } }, { upsert: true })
+                // Broadcast merged status to UI immediately
+                try {
+                  const merged = await buildMergedStatus()
+                  io.emit("status", merged)
+                } catch {}
+                // Ask devices to reload lights
+                try {
+                  const msg = JSON.stringify({ type: "cmd", payload: { action: "reload_lights" } })
+                  global.wsInstance?.clients.forEach((ws) => { if (ws.readyState === WebSocket.OPEN) ws.send(msg) })
+                } catch {}
+                socket.emit("cmd_ack", { ok: true })
+              } catch {
+                socket.emit("cmd_ack", { ok: false })
+              }
+              return
+            }
+
+            if (body.action === "delete_light") {
+              // Expect: { action:"delete_light", name }
+              const name = String(body.name || "").trim()
+              if (!name) { socket.emit("cmd_ack", { ok: false, error: "invalid_delete_light" }); return }
+              try {
+                const col = await getCollection("lights")
+                await col.deleteOne({ name })
+                // Broadcast merged status to UI immediately
+                try {
+                  const merged = await buildMergedStatus()
+                  io.emit("status", merged)
+                } catch {}
+                try {
+                  const msg = JSON.stringify({ type: "cmd", payload: { action: "reload_lights" } })
+                  global.wsInstance?.clients.forEach((ws) => { if (ws.readyState === WebSocket.OPEN) ws.send(msg) })
+                } catch {}
+                socket.emit("cmd_ack", { ok: true })
+              } catch {
+                socket.emit("cmd_ack", { ok: false })
+              }
+              return
+            }
+            // Non-catalog commands
+            // Persist schedule changes to DB so they survive restarts
+            if (body.action === "schedule") {
+              const room = String(body.room || "").trim()
+              const on = typeof body.on === "string" ? body.on : "00:00"
+              const off = typeof body.off === "string" ? body.off : "00:00"
+              const enabled = !!body.enabled
+              if (room) {
+                try {
+                  const col = await getCollection("lights")
+                  await col.updateOne({ name: room }, { $set: { name: room, on, off, scheduleEnabled: enabled, updatedAt: Date.now() } }, { upsert: true })
+                  // Emit merged status so UI updates immediately
                   try {
                     const merged = await buildMergedStatus()
                     io.emit("status", merged)
                   } catch {}
-                  // Ask devices to reload lights
-                  try {
-                    const msg = JSON.stringify({ type: "cmd", payload: { action: "reload_lights" } })
-                    global.wsInstance?.clients.forEach((ws) => { if (ws.readyState === WebSocket.OPEN) ws.send(msg) })
-                  } catch {}
-                  socket.emit("cmd_ack", { ok: true })
-                }).catch(() => socket.emit("cmd_ack", { ok: false }))
-                return
+                } catch {}
               }
-              if (body.action === "delete_light") {
-                // Expect: { action:"delete_light", name }
-                const name = String(body.name || "").trim()
-                if (!name) { socket.emit("cmd_ack", { ok: false, error: "invalid_delete_light" }); return }
-                getCollection("lights").then(async (col) => {
-                  await col.deleteOne({ name })
-                  // Broadcast merged status to UI immediately
-                  try {
-                    const merged = await buildMergedStatus()
-                    io.emit("status", merged)
-                  } catch {}
-                  try {
-                    const msg = JSON.stringify({ type: "cmd", payload: { action: "reload_lights" } })
-                    global.wsInstance?.clients.forEach((ws) => { if (ws.readyState === WebSocket.OPEN) ws.send(msg) })
-                  } catch {}
-                  socket.emit("cmd_ack", { ok: true })
-                }).catch(() => socket.emit("cmd_ack", { ok: false }))
-                return
-              }
-            // Non-catalog commands hand off to device queue and WS
+            }
             store.enqueueCmd(body)
             try {
               const msg = JSON.stringify({ type: "cmd", payload: body })
