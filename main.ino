@@ -106,13 +106,8 @@ void setup() {
   // secureClient.setCACert(rootCACert);
   secureClient.setInsecure();
 
-  // Load lights configuration from server (MongoDB)
-  if (!loadLightsFromServer()) {
-    Serial.println("Load lights from server failed, no lights configured");
-  }
-
-  // Now configure GPIO pins for loaded lights
-  configurePinsForCurrentLights();
+  // Defer loading lights until WS is connected to ensure server is ready
+  Serial.println("Deferring lights load until WS connected...");
 
   // Connect WebSocket to server
   delay(200);
@@ -242,12 +237,20 @@ bool loadLightsFromServer() {
   }
   http.addHeader("Authorization", String("Bearer ") + authToken);
   int code = http.GET();
+  Serial.print("GET /api/lights -> "); Serial.println(code);
   if (code != HTTP_CODE_OK) {
-    Serial.print("GET /api/lights -> "); Serial.println(code);
+    // Dump any payload for troubleshooting
+    String err = http.getString();
+    Serial.print("/api/lights error payload: "); Serial.println(err);
     http.end();
     return false;
   }
   String resp = http.getString();
+  Serial.print("/api/lights resp bytes="); Serial.println(resp.length());
+  {
+    String preview = resp.substring(0, resp.length() > 256 ? 256 : resp.length());
+    Serial.print("/api/lights preview: "); Serial.println(preview);
+  }
   http.end();
 
   DynamicJsonDocument doc(4096);
@@ -415,7 +418,15 @@ void handleJsonCommand(const String& json) {
     int idx = findLightIndexByName(room);
     if (idx < 0) {
       Serial.print("schedule: room not found -> "); Serial.println(room);
-      return;
+      // Attempt to reload lights and retry once
+      if (loadLightsFromServer()) {
+        configurePinsForCurrentLights();
+        idx = findLightIndexByName(room);
+      }
+      if (idx < 0) {
+        Serial.println("schedule: still not found after reload; ignoring");
+        return;
+      }
     }
 
     const char* onStr = doc["on"] | nullptr;
@@ -473,9 +484,12 @@ void wsEvent(WStype_t type, uint8_t * payload, size_t length) {
       wsConnected = true;
       Serial.println("WS connected");
       wsReconnectAttempts = 0;
-      // Refresh lights from server on each WS connect in case boot-time load was empty
+      // Refresh lights from server on each WS connect (authoritative)
+      Serial.println("Reloading lights after WS connect...");
       if (loadLightsFromServer()) {
         configurePinsForCurrentLights();
+      } else {
+        Serial.println("No lights loaded after WS connect");
       }
       sendStatusWS();
       break;
