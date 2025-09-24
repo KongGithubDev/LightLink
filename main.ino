@@ -265,19 +265,23 @@ bool loadLightsFromServer() {
   clearLights();
   for (JsonObject o : arr) {
     if (NUM_LIGHTS >= MAX_LIGHTS) break;
-    const char* name = o["name"] | nullptr;
+    // Read name as Arduino String to avoid pointer lifetime/coercion issues
+    String nameStr = o["name"].as<String>();
+    // Let ArduinoJson coerce pin to int regardless of underlying JSON number type (int/float) or string
     int pin = o["pin"] | -1;
     const char* onStr = o["on"] | "00:00";
     const char* offStr = o["off"] | "00:00";
     bool sched = o["scheduleEnabled"] | false;
-    if (!name || pin < 0) continue;
-    if (!isAllowedPin((uint8_t)pin)) {
-      Serial.print("Skipping disallowed pin: "); Serial.println(pin);
-      continue;
-    }
+    Serial.print("/api/lights item -> name="); Serial.print(nameStr.length() ? nameStr.c_str() : "<null>");
+    Serial.print(" pin="); Serial.print(pin);
+    Serial.print(" on="); Serial.print(onStr);
+    Serial.print(" off="); Serial.print(offStr);
+    Serial.print(" sched="); Serial.println(sched ? 1 : 0);
+    if (nameStr.length() == 0 || pin < 0) { Serial.println("  -> skip: missing name or pin"); continue; }
+    if (!isAllowedPin((uint8_t)pin)) { Serial.println("  -> skip: disallowed pin"); continue; }
 
     Light L;
-    strncpy(L.name, name, sizeof(L.name) - 1);
+    strncpy(L.name, nameStr.c_str(), sizeof(L.name) - 1);
     L.name[sizeof(L.name) - 1] = '\0';
     L.pin = (uint8_t)pin;
     L.state = false;
@@ -324,9 +328,21 @@ void sendStatusWS() {
 }
 
 int findLightIndexByName(const String& name) {
+  // Normalize input name (trim spaces)
+  String needle = name;
+  needle.trim();
+  Serial.print("findLightIndexByName: searching for '"); Serial.print(needle); Serial.println("'");
+  Serial.print("  NUM_LIGHTS="); Serial.println(NUM_LIGHTS);
   for (size_t i = 0; i < NUM_LIGHTS; i++) {
-    if (name.equalsIgnoreCase(lights[i].name)) return (int)i;
+    String cur = String(lights[i].name);
+    cur.trim();
+    Serial.print("  compare with[ "); Serial.print(i); Serial.print(" ] '"); Serial.print(cur); Serial.println("'");
+    if (needle.equalsIgnoreCase(cur)) {
+      Serial.print("  -> matched index "); Serial.println((int)i);
+      return (int)i;
+    }
   }
+  Serial.println("  -> no match");
   return -1;
 }
 
@@ -429,21 +445,27 @@ void handleJsonCommand(const String& json) {
       }
     }
 
-    const char* onStr = doc["on"] | nullptr;
-    const char* offStr = doc["off"] | nullptr;
+    String onStr = doc["on"].as<String>();
+    String offStr = doc["off"].as<String>();
     bool en = doc["enabled"] | lights[idx].scheduleEnabled;
 
-    if (onStr && strlen(onStr) >= 4) {
-      int h = atoi(String(onStr).substring(0, 2).c_str());
-      int m = atoi(String(onStr).substring(3, 5).c_str());
+    if (onStr.length() >= 4) {
+      int h = onStr.substring(0, 2).toInt();
+      int m = onStr.substring(3, 5).toInt();
       lights[idx].onHour = constrain(h, 0, 23);
       lights[idx].onMin = constrain(m, 0, 59);
+      Serial.print("schedule parse on -> "); Serial.print(h); Serial.print(":"); Serial.println(m);
+    } else {
+      Serial.println("schedule parse on -> missing/short, keep previous");
     }
-    if (offStr && strlen(offStr) >= 4) {
-      int h = atoi(String(offStr).substring(0, 2).c_str());
-      int m = atoi(String(offStr).substring(3, 5).c_str());
+    if (offStr.length() >= 4) {
+      int h = offStr.substring(0, 2).toInt();
+      int m = offStr.substring(3, 5).toInt();
       lights[idx].offHour = constrain(h, 0, 23);
       lights[idx].offMin = constrain(m, 0, 59);
+      Serial.print("schedule parse off -> "); Serial.print(h); Serial.print(":"); Serial.println(m);
+    } else {
+      Serial.println("schedule parse off -> missing/short, keep previous");
     }
     lights[idx].scheduleEnabled = en;
 
