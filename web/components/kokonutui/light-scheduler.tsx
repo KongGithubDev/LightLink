@@ -29,9 +29,6 @@ export default function LightScheduler() {
   const [form, setForm] = useState({ name: "", pin: 19, on: "18:00", off: "23:00", scheduleEnabled: false })
   const [busy, setBusy] = useState<string | null>(null)
   const { toast } = useToast()
-  // Pins (19,21,22,23) state
-  const [pinReport, setPinReport] = useState<Record<number, boolean>>({})
-  const [pinOptimistic, setPinOptimistic] = useState<Record<number, boolean>>({})
 
   useEffect(() => {
     // connect websocket
@@ -52,25 +49,6 @@ export default function LightScheduler() {
           }
         })
         setLights(next)
-      }
-      if (Array.isArray(payload?.pins)) {
-        const map: Record<number, boolean> = {}
-        ;(payload.pins as any[]).forEach((po) => {
-          const pin = Number(po?.pin)
-          const state = !!po?.state
-          if ([19,21,22,23].includes(pin)) map[pin] = state
-        })
-        setPinReport(map)
-        // Clear optimistic for pins we now have authoritative state for
-        setPinOptimistic((prev) => {
-          if (!prev) return prev
-          const copy = { ...prev }
-          for (const k of Object.keys(copy)) {
-            const p = Number(k)
-            if (p in map) delete copy[p]
-          }
-          return copy
-        })
       }
     }
     const onConnect = () => {
@@ -187,27 +165,6 @@ export default function LightScheduler() {
 
   const entries = Object.values(lights)
 
-  // --- PIN controls ---
-  const allowedPins = [19, 21, 22, 23]
-  const pinState: Record<number, boolean> = {}
-  for (const p of allowedPins) pinState[p] = false
-  for (const p of allowedPins) {
-    if (p in pinReport) pinState[p] = !!pinReport[p]
-  }
-  if (Object.keys(pinReport).length === 0) {
-    for (const l of entries) {
-      if (typeof l.pin === 'number' && allowedPins.includes(l.pin)) {
-        pinState[l.pin] = pinState[l.pin] || !!l.state
-      }
-    }
-  }
-  for (const p of allowedPins) if (p in pinOptimistic) pinState[p] = !!pinOptimistic[p]
-
-  const togglePin = (pin: number, next: boolean) => {
-    setPinOptimistic((m) => ({ ...m, [pin]: next }))
-    socketRef.current?.emit("cmd", { action: "set_pin", pin, state: next })
-  }
-
   const someOn = entries.some((l) => l.state)
 
   return (
@@ -221,23 +178,6 @@ export default function LightScheduler() {
           {someOn ? "Turn All Off" : "Turn All On"}
         </Button>
       </div>
-      {/* GPIO Pins controls */}
-      <Card className="p-3">
-        <div className="flex items-center justify-between">
-          <div className="font-medium">GPIO Pins</div>
-          <div className="flex items-center gap-4">
-            {allowedPins.map((p) => (
-              <div key={p} className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">PIN {p}</span>
-                <Switch checked={!!pinState[p]} onCheckedChange={(v) => togglePin(p, v)} />
-                {p in pinOptimistic && (
-                  <span className="text-[11px] text-muted-foreground">syncing…</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </Card>
       {entries.length === 0 && (
         <div className="text-sm text-muted-foreground">No lights found. Add one below.</div>
       )}

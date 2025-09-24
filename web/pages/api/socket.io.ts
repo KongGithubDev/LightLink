@@ -73,7 +73,13 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
           const jsonLine = data.replace(/^data:\s*/, "").trim()
           const obj = JSON.parse(jsonLine)
           if (obj?.type === "status") {
-            io.emit("status", obj.payload)
+            // Always emit merged status to UI so DB-only lights are preserved
+            Promise.resolve(buildMergedStatus()).then((merged) => {
+              if (merged) io.emit("status", merged)
+            }).catch(() => {
+              // fallback to raw
+              io.emit("status", obj.payload)
+            })
             try {
               // Broadcast to raw WS clients
               global.wsInstance?.clients.forEach((ws) => {
