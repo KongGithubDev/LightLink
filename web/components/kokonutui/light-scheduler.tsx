@@ -97,11 +97,7 @@ export default function LightScheduler() {
     setLights((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }))
   }
 
-  const toggleLight = (id: string, next: boolean) => {
-    // optimistic update
-    setLights((prev) => ({ ...prev, [id]: { ...prev[id], state: next } }))
-    socketRef.current?.emit("cmd", { action: "set", target: id, state: next })
-  }
+  // Note: Power toggle removed from Light Scheduling per request
 
   const toggleAll = () => {
     const someOn = Object.values(lights).some((l) => l.state)
@@ -197,10 +193,6 @@ export default function LightScheduler() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <Label className="text-xs">Power</Label>
-                <Switch checked={!!l.state} onCheckedChange={(v) => toggleLight(l.name, v)} />
-              </div>
               <div className="flex items-center gap-2">
                 <Label className="text-xs">On</Label>
                 <Input type="time" className="h-8 w-28" value={l.on || "00:00"} onChange={(e) => setLightField(l.name, "on", e.target.value)} />

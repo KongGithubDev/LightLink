@@ -40,14 +40,15 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     socketRef.current = socket
 
     const onStatus = (payload: any) => {
+      let next: Record<string, UILight> | null = null
       if (Array.isArray(payload?.lights)) {
-        const next: Record<string, UILight> = {}
+        next = {}
         ;(payload.lights as any[]).forEach((l) => {
           const id = String(l.name)
-          next[id] = { id, label: prettyLabel(id), isOn: !!l.state, pin: typeof l.pin === 'number' ? l.pin : undefined }
+          next![id] = { id, label: prettyLabel(id), isOn: !!l.state, pin: typeof l.pin === 'number' ? l.pin : undefined }
         })
-        setLights(next)
       }
+      // If we also have pins, use them to override room isOn when pin matches
       if (Array.isArray(payload?.pins)) {
         const map: Record<number, boolean> = {}
         ;(payload.pins as any[]).forEach((po) => {
@@ -56,6 +57,25 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
           if ([19,21,22,23].includes(pin)) map[pin] = state
         })
         setPinReport(map)
+        // apply to lights map if available
+        if (next) {
+          for (const L of Object.values(next)) {
+            if (typeof L.pin === 'number' && (L.pin in map)) {
+              L.isOn = !!map[L.pin]
+            }
+          }
+        } else {
+          // No lights array in this event; update existing lights in-place
+          setLights((prev) => {
+            const copy: Record<string, UILight> = {}
+            for (const [k, v] of Object.entries(prev)) {
+              const newVal = { ...v }
+              if (typeof v.pin === 'number' && (v.pin in map)) newVal.isOn = !!map[v.pin]
+              copy[k] = newVal
+            }
+            return copy
+          })
+        }
         // Clear optimistic for pins that we have authoritative report on
         setPinOptimistic((prev) => {
           if (!prev) return prev
@@ -67,6 +87,7 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
           return copy
         })
       }
+      if (next) setLights(next)
     }
     const onConnect = () => {
       wsConnectedRef.current = true
@@ -137,6 +158,15 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     setPinOptimistic((m) => ({ ...m, [pin]: next }))
     socketRef.current?.emit("cmd", { action: "set_pin", pin, state: next })
     pushLog(`cmd(set_pin) ${pin} -> ${next}`)
+    // Fallback: clear optimistic after 3s if no device status/pins arrived
+    setTimeout(() => {
+      setPinOptimistic((m) => {
+        if (!(pin in m)) return m
+        const copy = { ...m }
+        delete copy[pin]
+        return copy
+      })
+    }, 3000)
   }
 
   const onCount = Object.values(lights).filter((l) => l.isOn).length
