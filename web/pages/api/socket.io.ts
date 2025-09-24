@@ -76,7 +76,11 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
           if (obj?.type === "status") {
             // Always emit merged status to UI so DB-only lights are preserved
             Promise.resolve(buildMergedStatus()).then((merged) => {
-              if (merged) io.emit("status", merged)
+              if (merged) {
+                // attach pins from device payload if present
+                if (obj?.payload?.pins) (merged as any).pins = obj.payload.pins
+                io.emit("status", merged)
+              }
             }).catch(() => {
               // fallback to raw
               io.emit("status", obj.payload)

@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Lightbulb, LightbulbOff } from "lucide-react"
@@ -143,12 +142,6 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     pushLog(`cmd(set) ${id} -> ${newState}`)
   }
 
-  const toggleAll = async () => {
-    const someOn = Object.values(lights).some((l) => l.isOn)
-    const next = !someOn // if any is on -> turn all off; if none on (including empty) -> turn all on
-    socketRef.current?.emit("cmd", { action: "set", target: "all", state: next })
-    pushLog(`cmd(set) all -> ${next}`)
-  }
 
   // --- PIN controls ---
   const allowedPins = [19, 21, 22, 23]
@@ -199,9 +192,7 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
         <span className="text-sm text-muted-foreground">
           {onCount} of {total} lights on
         </span>
-        <Button variant="outline" size="sm" onClick={toggleAll} className="text-xs bg-transparent">
-          {someOn ? "Turn All Off" : "Turn All On"}
-        </Button>
+        {/* Toggle All button removed per request */}
       </div>
 
       <div className="space-y-3">

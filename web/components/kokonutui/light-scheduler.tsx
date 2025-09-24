@@ -163,6 +163,19 @@ export default function LightScheduler() {
 
   const someOn = entries.some((l) => l.state)
 
+  // PIN usage helpers for Add Light form
+  const allowedPins = [19, 21, 22, 23]
+  const usedPins = new Set<number>(entries.map((l) => (typeof l.pin === 'number' ? l.pin : -1)).filter((p) => p !== -1))
+  const availablePins = allowedPins.filter((p) => !usedPins.has(p))
+
+  // If current form.pin is already used, auto-adjust to first available
+  useEffect(() => {
+    if (usedPins.has(form.pin)) {
+      const first = availablePins[0]
+      if (first !== undefined) setForm((f) => ({ ...f, pin: first }))
+    }
+  }, [entries.length])
+
   return (
     <div className="w-full space-y-3">
       {/* Header with summary and Toggle All */}
@@ -222,7 +235,7 @@ export default function LightScheduler() {
           <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
             <div>
               <Label className="text-xs">Name</Label>
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="h-9" placeholder="e.g., kitchen" />
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="h-9" placeholder="e.g., kitchen" disabled={availablePins.length === 0} />
             </div>
             <div>
               <Label className="text-xs">Pin</Label>
@@ -230,28 +243,35 @@ export default function LightScheduler() {
                 value={form.pin}
                 onChange={(e) => setForm({ ...form, pin: Number(e.target.value) })}
                 className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                disabled={availablePins.length === 0}
               >
-                <option value={19}>19</option>
-                <option value={21}>21</option>
-                <option value={22}>22</option>
-                <option value={23}>23</option>
+                <option value={19} disabled={usedPins.has(19)}>19{usedPins.has(19) ? " (used)" : ""}</option>
+                <option value={21} disabled={usedPins.has(21)}>21{usedPins.has(21) ? " (used)" : ""}</option>
+                <option value={22} disabled={usedPins.has(22)}>22{usedPins.has(22) ? " (used)" : ""}</option>
+                <option value={23} disabled={usedPins.has(23)}>23{usedPins.has(23) ? " (used)" : ""}</option>
               </select>
+              {usedPins.has(form.pin) && (
+                <div className="text-[11px] text-red-500 mt-1">This PIN is already used. Please choose another.</div>
+              )}
             </div>
             <div>
               <Label className="text-xs">On</Label>
-              <Input type="time" value={form.on} onChange={(e) => setForm({ ...form, on: e.target.value })} className="h-9" />
+              <Input type="time" value={form.on} onChange={(e) => setForm({ ...form, on: e.target.value })} className="h-9" disabled={availablePins.length === 0} />
             </div>
             <div>
               <Label className="text-xs">Off</Label>
-              <Input type="time" value={form.off} onChange={(e) => setForm({ ...form, off: e.target.value })} className="h-9" />
+              <Input type="time" value={form.off} onChange={(e) => setForm({ ...form, off: e.target.value })} className="h-9" disabled={availablePins.length === 0} />
             </div>
             <div className="flex items-center gap-2">
               <Label className="text-xs">Schedule</Label>
-              <Switch checked={form.scheduleEnabled} onCheckedChange={(v) => setForm({ ...form, scheduleEnabled: v })} />
+              <Switch checked={form.scheduleEnabled} onCheckedChange={(v) => setForm({ ...form, scheduleEnabled: v })} disabled={availablePins.length === 0} />
             </div>
           </div>
           <div>
-            <Button size="sm" onClick={addLight} disabled={busy === "add" || !form.name.trim()}> {busy === "add" ? "Adding..." : "Add"} </Button>
+            <Button size="sm" onClick={addLight} disabled={busy === "add" || !form.name.trim() || availablePins.length === 0 || usedPins.has(form.pin)}> {busy === "add" ? "Adding..." : "Add"} </Button>
+            {availablePins.length === 0 && (
+              <div className="text-[11px] text-muted-foreground mt-1">All GPIO pins (19, 21, 22, 23) are in use. Remove a light to add a new one.</div>
+            )}
           </div>
         </div>
       </Card>
