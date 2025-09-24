@@ -295,6 +295,8 @@ void handleJsonCommand(const String& json) {
     return;
   }
 
+  const char* action = doc["action"] | "";
+
   if (strcmp(action, "set_pin") == 0) {
     // { action:"set_pin", pin: 19|21|22|23, state: true/false }
     int pin = doc["pin"] | -1;
@@ -317,8 +319,6 @@ void handleJsonCommand(const String& json) {
     }
     return;
   }
-
-  const char* action = doc["action"] | "";
 
   if (strcmp(action, "reload_lights") == 0) {
     // Reload catalog from server and reconfigure pins

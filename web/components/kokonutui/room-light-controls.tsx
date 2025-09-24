@@ -21,6 +21,8 @@ interface RoomLightControlsProps {
 
 export default function RoomLightControls({ className }: RoomLightControlsProps) {
   const [lights, setLights] = useState<Record<string, UILight>>({})
+  // Optimistic state for PIN toggles so UI reflects immediately before device status comes back
+  const [pinOptimistic, setPinOptimistic] = useState<Record<number, boolean>>({})
   const [logLines, setLogLines] = useState<string[]>([])
   const socketRef = useRef<Socket | null>(null)
   const wsConnectedRef = useRef(false)
@@ -43,6 +45,18 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
           next[id] = { id, label: prettyLabel(id), isOn: !!l.state, pin: typeof l.pin === 'number' ? l.pin : undefined }
         })
         setLights(next)
+        // Clear optimistic pins that are now covered by latest status
+        setPinOptimistic((prev) => {
+          const copy = { ...prev }
+          for (const p of Object.keys(copy)) {
+            const pinNum = Number(p)
+            // if any light reports this pin, clear the optimistic override
+            if (Object.values(next).some((L) => L.pin === pinNum)) {
+              delete copy[pinNum]
+            }
+          }
+          return copy
+        })
       }
     }
     const onConnect = () => {
@@ -97,7 +111,13 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
       pinState[L.pin] = pinState[L.pin] || L.isOn
     }
   }
+  // Apply optimistic overrides
+  for (const p of allowedPins) {
+    if (p in pinOptimistic) pinState[p] = !!pinOptimistic[p]
+  }
   const togglePin = (pin: number, next: boolean) => {
+    // optimistic update
+    setPinOptimistic((m) => ({ ...m, [pin]: next }))
     socketRef.current?.emit("cmd", { action: "set_pin", pin, state: next })
     pushLog(`cmd(set_pin) ${pin} -> ${next}`)
   }
