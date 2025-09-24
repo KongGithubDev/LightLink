@@ -5,7 +5,8 @@ import { Bell, ChevronRight } from "lucide-react"
 import Profile01 from "./profile-01"
 import Link from "next/link"
 import { ThemeToggle } from "../theme-toggle"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { io, Socket } from "socket.io-client"
 
 interface BreadcrumbItem {
   label: string
@@ -20,6 +21,10 @@ export default function TopNav() {
 
   // Real-time 24h clock in navbar
   const [nowStr, setNowStr] = useState<string>("--:--:--")
+  // WS status
+  type ConnState = "connected" | "connecting" | "disconnected"
+  const [state, setState] = useState<ConnState>("connecting")
+  const socketRef = useRef<Socket | null>(null)
   useEffect(() => {
     const tick = () => {
       const d = new Date()
@@ -31,6 +36,27 @@ export default function TopNav() {
     tick()
     const t = setInterval(tick, 1000)
     return () => clearInterval(t)
+  }, [])
+
+  // Minimal WS connection just for showing navbar status
+  useEffect(() => {
+    const socket: Socket = io(undefined, { path: "/api/socket.io", transports: ["websocket", "polling"] })
+    socketRef.current = socket
+    const onConnect = () => setState("connected")
+    const onDisconnect = () => setState("disconnected")
+    const onError = () => setState((s) => (s === "connected" ? "connected" : "disconnected"))
+    // initial state
+    setState("connecting")
+    socket.on("connect", onConnect)
+    socket.on("disconnect", onDisconnect)
+    socket.on("connect_error", onError)
+    return () => {
+      socket.off("connect", onConnect)
+      socket.off("disconnect", onDisconnect)
+      socket.off("connect_error", onError)
+      socket.close()
+      socketRef.current = null
+    }
   }, [])
 
   return (
@@ -54,9 +80,10 @@ export default function TopNav() {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-4 ml-auto sm:ml-0">
-        <span className="hidden sm:inline-flex items-center px-2 py-1 text-xs rounded-md border border-gray-200 dark:border-[#1F1F23] font-mono">
-          {nowStr}
+        <span className={`hidden sm:inline-flex items-center px-2 py-1 text-xs rounded-full border ${state === 'connected' ? 'bg-green-100 text-green-700 border-green-200' : state === 'connecting' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
+          WS: {state}
         </span>
+        <span className="hidden sm:inline-flex items-center px-2 py-1 text-xs rounded-md border border-gray-200 dark:border-[#1F1F23] font-mono">{nowStr}</span>
         <button
           type="button"
           className="p-1.5 sm:p-2 hover:bg-gray-100 dark:hover:bg-[#1F1F23] rounded-full transition-colors"
