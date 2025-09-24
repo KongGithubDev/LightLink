@@ -23,8 +23,6 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
   const [lights, setLights] = useState<Record<string, UILight>>({})
   // Optimistic state for PIN toggles so UI reflects immediately before device status comes back
   const [pinOptimistic, setPinOptimistic] = useState<Record<number, boolean>>({})
-  // Track syncing indicator per pin separately from optimistic value
-  const [pinSyncing, setPinSyncing] = useState<Record<number, boolean>>({})
   // Latest pin state reported by device (payload.pins)
   const [pinReport, setPinReport] = useState<Record<number, boolean>>({})
   const socketRef = useRef<Socket | null>(null)
@@ -84,16 +82,6 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
         }
         // Clear optimistic for pins that we have authoritative report on
         setPinOptimistic((prev) => {
-          if (!prev) return prev
-          const copy = { ...prev }
-          for (const k of Object.keys(copy)) {
-            const p = Number(k)
-            if (p in map) delete copy[p]
-          }
-          return copy
-        })
-        // Also clear syncing flags for those pins
-        setPinSyncing((prev) => {
           if (!prev) return prev
           const copy = { ...prev }
           for (const k of Object.keys(copy)) {
@@ -185,7 +173,6 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
   const togglePin = (pin: number, next: boolean) => {
     // optimistic update
     setPinOptimistic((m) => ({ ...m, [pin]: next }))
-    setPinSyncing((m) => ({ ...m, [pin]: true }))
     // update room tiles that share this pin immediately
     setLights((prev) => {
       const copy: Record<string, UILight> = {}
@@ -200,15 +187,6 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
     })
     socketRef.current?.emit("cmd", { action: "set_pin", pin, state: next })
     pushLog(`cmd(set_pin) ${pin} -> ${next}`)
-    // Fallback: hide syncing after 3s if no device status/pins arrived
-    setTimeout(() => {
-      setPinSyncing((m) => {
-        if (!(pin in m)) return m
-        const copy = { ...m }
-        delete copy[pin]
-        return copy
-      })
-    }, 3000)
   }
 
   const onCount = Object.values(lights).filter((l) => l.isOn).length
@@ -236,9 +214,6 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
                 <div key={p} className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">PIN {p}</span>
                   <Switch checked={!!pinState[p]} onCheckedChange={(v) => togglePin(p, v)} />
-                  {p in pinSyncing && (
-                    <span className="text-[11px] text-muted-foreground">syncing…</span>
-                  )}
                 </div>
               ))}
             </div>
@@ -270,18 +245,7 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
         )}
       </div>
 
-      {logLines.length > 0 && (
-        <div className="mt-4 p-3 bg-muted rounded-lg">
-          <h4 className="text-xs font-medium mb-2">Recent Server Logs</h4>
-          <div className="space-y-1">
-            {logLines.slice(0, 5).map((msg, index) => (
-              <div key={index} className="text-xs font-mono text-muted-foreground">
-                {msg}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      
     </div>
   )
 }
