@@ -8,10 +8,6 @@ function authorize(req: NextRequest) {
   return hdr === `Bearer ${token}`
 }
 
-function isMock() {
-  return (process.env.LIGHTLINK_MOCK === "1" || process.env.NEXT_PUBLIC_LIGHTLINK_MOCK === "1")
-}
-
 function isSameOrigin(req: NextRequest) {
   const origin = req.headers.get("origin") || ""
   try {
@@ -35,24 +31,11 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!isMock() && !authorize(req) && !isSameOrigin(req)) {
+  if (!authorize(req) && !isSameOrigin(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 })
   }
   const store = getStore()
-  let cur = store.getStatus()
-  if (!cur && isMock()) {
-    const mock: DeviceStatus = {
-      device: "mock-lightlink",
-      lights: [
-        { name: "kitchen", state: false, on: "18:00", off: "23:00", scheduleEnabled: false },
-        { name: "living", state: false, on: "18:00", off: "23:00", scheduleEnabled: false },
-        { name: "bedroom", state: false, on: "21:00", off: "07:00", scheduleEnabled: false },
-      ],
-      updatedAt: Date.now(),
-    }
-    store.setStatus(mock)
-    cur = mock
-  }
+  const cur = store.getStatus()
   // Merge DB lights catalog so the UI can display/manage lights even if the device hasn't posted yet
   try {
     const col = await getCollection("lights")

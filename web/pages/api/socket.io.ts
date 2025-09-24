@@ -63,34 +63,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
         socket.on("cmd", (body) => {
           try {
             if (!body || typeof body !== "object") return
-            const isMock = process.env.LIGHTLINK_MOCK === "1" || process.env.NEXT_PUBLIC_LIGHTLINK_MOCK === "1"
-            if (isMock) {
-              // Simulate same logic as POST /api/cmd (mock branch)
-              const cur = (store.getStatus() || { device: "mock-lightlink", lights: [], updatedAt: Date.now() }) as any
-              if (!Array.isArray(cur.lights) || cur.lights.length === 0) {
-                cur.lights = [
-                  { name: "kitchen", state: false, on: "18:00", off: "23:00", scheduleEnabled: false },
-                  { name: "living", state: false, on: "18:00", off: "23:00", scheduleEnabled: false },
-                  { name: "bedroom", state: false, on: "21:00", off: "07:00", scheduleEnabled: false },
-                ]
-              }
-              if (body.action === "set") {
-                const hasState = Object.prototype.hasOwnProperty.call(body, "state")
-                if (body.target === "all") {
-                  cur.lights = cur.lights.map((l: any) => ({ ...l, state: hasState ? !!body.state : !l.state }))
-                } else {
-                  cur.lights = cur.lights.map((l: any) => (l.name === body.target ? { ...l, state: hasState ? !!body.state : !l.state } : l))
-                }
-              }
-              if (body.action === "schedule") {
-                cur.lights = cur.lights.map((l: any) =>
-                  l.name === body.room ? { ...l, on: body.on, off: body.off, scheduleEnabled: !!body.enabled } : l,
-                )
-              }
-              cur.updatedAt = Date.now()
-              store.setStatus(cur)
-            } else {
-              // Handle catalog mutations from UI
+            // Handle catalog mutations from UI
               if (body.action === "add_light") {
                 // Expect: { action:"add_light", name, pin, on, off, scheduleEnabled }
                 const name = String(body.name || "").trim()
@@ -122,10 +95,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
                 }).catch(() => socket.emit("cmd_ack", { ok: false }))
                 return
               }
-              // Non-catalog commands hand off to device queue and WS
-              store.enqueueCmd(body)
-              try { store.broadcast({ type: "cmd", payload: body }) } catch {}
-            }
+            // Non-catalog commands hand off to device queue and WS
+            store.enqueueCmd(body)
+            try { store.broadcast({ type: "cmd", payload: body }) } catch {}
             // Optionally acknowledge
             socket.emit("cmd_ack", { ok: true })
           } catch {}
@@ -175,30 +147,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
               store.setStatus(obj.payload)
             } else if (obj?.type === "cmd" && obj.payload) {
               const body = obj.payload
-              const isMock = process.env.LIGHTLINK_MOCK === "1" || process.env.NEXT_PUBLIC_LIGHTLINK_MOCK === "1"
-              if (isMock) {
-                // Update store directly similar to mock
-                const cur = (store.getStatus() || { device: "mock-lightlink", lights: [], updatedAt: Date.now() }) as any
-                if (!Array.isArray(cur.lights) || cur.lights.length === 0) {
-                  cur.lights = [
-                    { name: "kitchen", state: false, on: "18:00", off: "23:00", scheduleEnabled: false },
-                    { name: "living", state: false, on: "18:00", off: "23:00", scheduleEnabled: false },
-                    { name: "bedroom", state: false, on: "21:00", off: "07:00", scheduleEnabled: false },
-                  ]
-                }
-                if (body.action === "set") {
-                  const hasState = Object.prototype.hasOwnProperty.call(body, "state")
-                  if (body.target === "all") cur.lights = cur.lights.map((l: any) => ({ ...l, state: hasState ? !!body.state : !l.state }))
-                  else cur.lights = cur.lights.map((l: any) => (l.name === body.target ? { ...l, state: hasState ? !!body.state : !l.state } : l))
-                }
-                if (body.action === "schedule") {
-                  cur.lights = cur.lights.map((l: any) => (l.name === body.room ? { ...l, on: body.on, off: body.off, scheduleEnabled: !!body.enabled } : l))
-                }
-                cur.updatedAt = Date.now()
-                store.setStatus(cur)
-              } else {
-                store.enqueueCmd(body)
-              }
+              store.enqueueCmd(body)
             }
           } catch {}
         })

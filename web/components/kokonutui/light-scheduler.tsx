@@ -166,7 +166,7 @@ export default function LightScheduler() {
       {entries.map((l) => (
         <Card key={l.name} className="p-3">
           <div className="flex items-center justify-between">
-            <div className="font-medium">{l.name}</div>
+            <div className="font-medium">{prettyLabel(l.name)}</div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <Label className="text-xs">On</Label>
