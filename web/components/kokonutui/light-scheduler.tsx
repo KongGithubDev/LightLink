@@ -42,37 +42,6 @@ export default function LightScheduler() {
             off: l.off,
             scheduleEnabled: !!l.scheduleEnabled,
           }
-
-  const addLight = async () => {
-    if (!form.name.trim()) return
-    setBusy("add")
-    try {
-      socketRef.current?.emit("cmd", {
-        action: "add_light",
-        name: form.name.trim(),
-        pin: form.pin,
-        on: form.on || "00:00",
-        off: form.off || "00:00",
-        scheduleEnabled: !!form.scheduleEnabled,
-      })
-      // device will reload via server broadcast
-      setForm({ name: "", pin: 19, on: "18:00", off: "23:00", scheduleEnabled: false })
-      setAdding(false)
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const deleteLight = async (name: string) => {
-    if (!name) return
-    setBusy(`del:${name}`)
-    try {
-      socketRef.current?.emit("cmd", { action: "delete_light", name })
-      // device will reload via server broadcast
-    } finally {
-      setTimeout(() => setBusy(null), 500)
-    }
-  }
         })
         setLights(next)
       }
