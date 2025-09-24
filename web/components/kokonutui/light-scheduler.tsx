@@ -1,19 +1,3 @@
-  // Real-time 24h clock updated every second
-  const [nowStr, setNowStr] = useState<string>("--:--:--")
-  const [nowMinutes, setNowMinutes] = useState<number>(0)
-  useEffect(() => {
-    const tick = () => {
-      const d = new Date()
-      const hh = String(d.getHours()).padStart(2, '0')
-      const mm = String(d.getMinutes()).padStart(2, '0')
-      const ss = String(d.getSeconds()).padStart(2, '0')
-      setNowStr(`${hh}:${mm}:${ss}`)
-      setNowMinutes(d.getHours() * 60 + d.getMinutes())
-    }
-    tick()
-    const t = setInterval(tick, 1000)
-    return () => clearInterval(t)
-  }, [])
 "use client"
 
 import { useEffect, useRef, useState } from "react"
@@ -46,6 +30,23 @@ export default function LightScheduler() {
   const [form, setForm] = useState({ name: "", pin: 19, on: "18:00", off: "23:00", scheduleEnabled: false })
   const [busy, setBusy] = useState<string | null>(null)
   const { toast } = useToast()
+
+  // Real-time 24h clock updated every second
+  const [nowStr, setNowStr] = useState<string>("--:--:--")
+  const [nowMinutes, setNowMinutes] = useState<number>(0)
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date()
+      const hh = String(d.getHours()).padStart(2, '0')
+      const mm = String(d.getMinutes()).padStart(2, '0')
+      const ss = String(d.getSeconds()).padStart(2, '0')
+      setNowStr(`${hh}:${mm}:${ss}`)
+      setNowMinutes(d.getHours() * 60 + d.getMinutes())
+    }
+    tick()
+    const t = setInterval(tick, 1000)
+    return () => clearInterval(t)
+  }, [])
 
   useEffect(() => {
     // connect websocket
@@ -322,4 +323,20 @@ function prettyLabel(id: string) {
     bedroom: "Bedroom",
   }
   return map[id] || id
+}
+
+// Helper: determine if current time is within a light's schedule (24h, supports overnight)
+function isInSchedule(l: { on?: string; off?: string }, nowMinutes: number): boolean {
+  const parseHM = (s?: string): number | null => {
+    if (!s || s.length < 4) return null
+    const hh = Math.max(0, Math.min(23, parseInt(s.slice(0, 2), 10)))
+    const mm = Math.max(0, Math.min(59, parseInt(s.slice(3, 5), 10)))
+    return hh * 60 + mm
+  }
+  const onM = parseHM(l.on) ?? 0
+  const offM = parseHM(l.off) ?? 0
+  if (onM === offM) return false
+  if (onM < offM) return nowMinutes >= onM && nowMinutes < offM
+  // overnight
+  return nowMinutes >= onM || nowMinutes < offM
 }
