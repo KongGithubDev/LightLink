@@ -48,11 +48,17 @@ export async function POST(req: NextRequest) {
     const data = await res.json().catch(() => ({}))
     // Chatbase typical field: data.text or data.message; support both
     const reply = data?.text || data?.message || ""
-    // Try to parse a leading UPPERCASE command line from reply for execution, e.g. 'TURN ON LIGHT PIN 19'
-    const firstLine = String(reply || "").split(/\r?\n/)[0] || ""
-    const intentFromReply = parseIntentFromTokens(firstLine)
-    // Fallback: parse from user's message
-    const intent = intentFromReply || parseIntentFromTokens(message)
+    // Try to parse UPPERCASE command lines from reply for execution.
+    // Support multi-line: collect actionable lines in order.
+    const lines = String(reply || "").split(/\r?\n/)
+    const intentsFromReply: ReturnType<typeof parseIntentFromTokens>[] = []
+    for (const line of lines) {
+      const cand = parseIntentFromTokens(line)
+      if (cand) intentsFromReply.push(cand)
+    }
+    // Fallback: parse from user's message if none found in reply
+    const fallback = intentsFromReply.length === 0 ? parseIntentFromTokens(message) : null
+    const intent: any = intentsFromReply.length > 0 ? intentsFromReply : fallback
     return NextResponse.json({ reply, intent })
   } catch (err: any) {
     return NextResponse.json({ error: "proxy_failed", message: String(err?.message || err) }, { status: 500 })
@@ -60,7 +66,7 @@ export async function POST(req: NextRequest) {
 }
 
 // Token-based parser (no regex) for core commands. Supports both EN and TH keywords.
-function parseIntentFromTokens(text: string): { type: string; name?: string; pin?: number; state?: boolean } | null {
+function parseIntentFromTokens(text: string): { type: string; name?: string; pin?: number; state?: boolean; on?: string; off?: string } | null {
   if (!text || typeof text !== "string") return null
   const norm = (text || "").trim()
   if (!norm) return null
@@ -96,15 +102,17 @@ function parseIntentFromTokens(text: string): { type: string; name?: string; pin
     if (Number.isFinite(v)) return { type: "toggle", pin: v, state: tokens[0] === "เปิด" }
   }
 
-  // CREATE LIGHT kitchen PIN 21 [ON 06:00 - 20:00]
-  if (tokens[0] === "CREATE" || tokens[0] === "ADD" || tokens[0] === "สร้าง" || tokens[0] === "เพิ่ม") {
+  // CREATE/CREATED LIGHT NAME <name> PIN <n> [ON 06:00 - 20:00]
+  if (tokens[0] === "CREATE" || tokens[0] === "CREATED" || tokens[0] === "ADD" || tokens[0] === "สร้าง" || tokens[0] === "เพิ่ม") {
     // name is the token after LIGHT (optional) and before PIN
     let name: string | undefined
     const lightIdx = findIndex("LIGHT")
+    const nameIdx = tokens.findIndex(t => t === "NAME")
     const pinIdx = tokens.findIndex(t => t === "PIN" || t === "พิน")
     if (pinIdx > 0) {
-      if (lightIdx >= 0 && pinIdx - lightIdx >= 2) name = rawTokens[lightIdx + 1]
-      else if (lightIdx < 0 && pinIdx >= 1) name = rawTokens[1]
+      if (nameIdx >= 0 && pinIdx - nameIdx >= 2) name = rawTokens[nameIdx + 1]
+      else if (lightIdx >= 0 && pinIdx - lightIdx >= 2) name = rawTokens[lightIdx + 1]
+      else if (lightIdx < 0 && nameIdx < 0 && pinIdx >= 1) name = rawTokens[1]
       const v = Number(tokens[pinIdx + 1])
       // Optional time range after PIN: look for 'ON' token
       let on: string | undefined
@@ -121,8 +129,10 @@ function parseIntentFromTokens(text: string): { type: string; name?: string; pin
   }
 
   // DELETE LIGHT kitchen / ลบ ไฟ kitchen
-  if (tokens[0] === "DELETE" || tokens[0] === "REMOVE" || tokens[0] === "ลบ" || tokens[0] === "เอาออก") {
+  if (tokens[0] === "DELETE" || tokens[0] === "DELETED" || tokens[0] === "REMOVE" || tokens[0] === "ลบ" || tokens[0] === "เอาออก") {
+    const nameIdx = tokens.findIndex(t => t === "NAME")
     const lightIdx = findIndex("LIGHT")
+    if (nameIdx >= 0 && rawTokens[nameIdx + 1]) return { type: "delete", name: rawTokens[nameIdx + 1] }
     if (lightIdx >= 0 && rawTokens[lightIdx + 1]) return { type: "delete", name: rawTokens[lightIdx + 1] }
     if (rawTokens[1]) return { type: "delete", name: rawTokens[1] }
   }
@@ -135,6 +145,27 @@ function parseIntentFromTokens(text: string): { type: string; name?: string; pin
   // Thai: เปิด tester / ปิด kitchen
   if ((tokens[0] === "เปิด" || tokens[0] === "ปิด") && rawTokens[1]) {
     return { type: "toggle", name: rawTokens[1], state: tokens[0] === "เปิด" }
+  }
+
+  // SCHEDULE LIGHT NAME <name> <on>-<off>
+  if (tokens[0] === "SCHEDULE" && tokens[1] === "LIGHT") {
+    let name: string | undefined
+    const nameIdx = tokens.findIndex(t => t === "NAME")
+    if (nameIdx >= 0 && rawTokens[nameIdx + 1]) name = rawTokens[nameIdx + 1]
+    // find any token that looks like HH:MM and the next (or +2 if '-')
+    const isHM = (s: string) => /\d{1,2}:\d{2}/.test(s)
+    let on: string | undefined
+    let off: string | undefined
+    for (let i = nameIdx + 2; i < rawTokens.length; i++) {
+      const t1 = rawTokens[i]
+      const t2 = rawTokens[i + 1]
+      const t3 = rawTokens[i + 2]
+      if (t1 && isHM(t1)) {
+        if (t2 === '-' && t3 && isHM(t3)) { on = t1; off = t3; break }
+        if (t2 && isHM(t2)) { on = t1; off = t2; break }
+      }
+    }
+    if (name && on && off) return { type: "schedule", name, on, off }
   }
 
   return null

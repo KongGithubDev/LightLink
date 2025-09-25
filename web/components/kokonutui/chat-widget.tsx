@@ -53,10 +53,18 @@ export default function ChatWidget() {
         append({ role: "assistant", content: `ขอโทษค่ะ มีข้อผิดพลาดจากเซิร์ฟเวอร์ (${data?.error || res.status})` })
         return
       }
-      // Perform intent if present; if executed, suppress Chatbase reply to avoid duplicates
+      // Perform intent if present; supports either single object or array
       let executed = false
       if (data?.intent && typeof data.intent === "object") {
-        executed = executeIntent(data.intent)
+        if (Array.isArray(data.intent)) {
+          for (const it of data.intent) {
+            if (it && typeof it === "object") {
+              executed = executeIntent(it) || executed
+            }
+          }
+        } else {
+          executed = executeIntent(data.intent)
+        }
       }
       if (!executed && data?.reply) {
         append({ role: "assistant", content: String(data.reply) })
@@ -101,6 +109,18 @@ export default function ChatWidget() {
       append({ role: "assistant", content: cmd })
       return true
     }
+    if (type === "schedule") {
+      const name = String(intent?.name || intent?.room || "").trim()
+      const on = String(intent?.on || "")
+      const off = String(intent?.off || "")
+      const isHM = (s: string) => /^\d{1,2}:\d{2}$/.test(s)
+      if (!name || !isHM(on) || !isHM(off)) { append({ role: "assistant", content: "โปรดระบุชื่อและเวลาเป็น HH:MM - ตัวอย่าง: SCHEDULE LIGHT NAME KITCHEN 06:00-20:00" }); return false }
+      s.emit("cmd", { action: "schedule", room: name, on, off, enabled: true })
+      try { s.emit("cmd", { action: "get_status" }) } catch {}
+      const cmd = `SCHEDULE LIGHT NAME ${name.toUpperCase()} ${on}-${off}`
+      append({ role: "assistant", content: cmd })
+      return true
+    }
     if (type === "toggle") {
       const name = intent?.name ? String(intent.name).trim() : undefined
       const pin = Number(intent?.pin)
@@ -129,7 +149,7 @@ export default function ChatWidget() {
 
   return (
     <Card className="p-3 sm:p-4">
-      <div className="font-medium text-sm mb-2">AI Chat</div>
+      <div className="font-medium text-sm mb-2">Lightlink - AI Chat</div>
       <div className="h-56 sm:h-64 overflow-y-auto rounded-md border bg-background p-2 space-y-2 text-sm">
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
