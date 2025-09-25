@@ -220,7 +220,7 @@ export default function LightScheduler() {
     <div className="w-full space-y-3">
       {/* Realtime clock moved to TopNav; WS status removed */}
       {/* Header with summary */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center px-1 sm:px-0">
         <span className="text-sm text-muted-foreground">
           {entries.filter((l) => l.state).length} of {entries.length} lights on
         </span>
@@ -230,9 +230,9 @@ export default function LightScheduler() {
       )}
 
       {entries.map((l) => (
-        <Card key={l.name} className="p-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
+        <Card key={l.name} className="p-2 sm:p-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {l.state ? (
                 <Lightbulb className="w-4 h-4 text-yellow-400" />
               ) : (
@@ -249,23 +249,23 @@ export default function LightScheduler() {
                 </span>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
               <div className="flex items-center gap-2">
                 <Label className="text-xs">On</Label>
-                <TimeInput24 value={l.on || "00:00"} onChange={(v) => setLightField(l.name, "on", v)} disabled={false} className="h-8 w-20 sm:w-28" />
+                <TimeInput24 value={l.on || "00:00"} onChange={(v) => setLightField(l.name, "on", v)} disabled={false} className="h-8 w-24 sm:w-28" />
               </div>
               <div className="flex items-center gap-2">
                 <Label className="text-xs">Off</Label>
-                <TimeInput24 value={l.off || "00:00"} onChange={(v) => setLightField(l.name, "off", v)} disabled={false} className="h-8 w-20 sm:w-28" />
+                <TimeInput24 value={l.off || "00:00"} onChange={(v) => setLightField(l.name, "off", v)} disabled={false} className="h-8 w-24 sm:w-28" />
               </div>
               <div className="flex items-center gap-2">
                 <Label className="text-xs">Schedule</Label>
                 <Switch checked={!!l.scheduleEnabled} onCheckedChange={(v) => setLightField(l.name, "scheduleEnabled", v)} />
               </div>
-              <Button size="sm" variant="default" onClick={() => saveSchedule(l.name)} disabled={!!saving[l.name]}>
+              <Button size="sm" variant="default" onClick={() => saveSchedule(l.name)} disabled={!!saving[l.name]} className="whitespace-nowrap">
                 {saving[l.name] ? "Saving..." : "Save"}
               </Button>
-              <Button size="sm" variant="destructive" onClick={() => deleteLight(l.name)} disabled={busy === `del:${l.name}`}>
+              <Button size="sm" variant="destructive" onClick={() => deleteLight(l.name)} disabled={busy === `del:${l.name}`} className="whitespace-nowrap">
                 {busy === `del:${l.name}` ? "Deleting..." : "Delete"}
               </Button>
             </div>
@@ -273,50 +273,43 @@ export default function LightScheduler() {
         </Card>
       ))}
 
+      {/* Add Light */}
       <Card className="p-3">
-        <div className="flex flex-col gap-3">
-          <div className="font-medium">Add Light</div>
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
-            <div>
-              <Label className="text-xs">Name</Label>
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="h-9" placeholder="e.g., kitchen" disabled={availablePins.length === 0} />
-            </div>
-            <div>
-              <Label className="text-xs">Pin</Label>
-              <select
-                value={form.pin}
-                onChange={(e) => setForm({ ...form, pin: Number(e.target.value) })}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                disabled={availablePins.length === 0}
-              >
-                <option value={19} disabled={usedPins.has(19)}>19{usedPins.has(19) ? " (used)" : ""}</option>
-                <option value={21} disabled={usedPins.has(21)}>21{usedPins.has(21) ? " (used)" : ""}</option>
-                <option value={22} disabled={usedPins.has(22)}>22{usedPins.has(22) ? " (used)" : ""}</option>
-                <option value={23} disabled={usedPins.has(23)}>23{usedPins.has(23) ? " (used)" : ""}</option>
-              </select>
-              {usedPins.has(form.pin) && (
-                <div className="text-[11px] text-red-500 mt-1">This PIN is already used. Please choose another.</div>
-              )}
-            </div>
-            <div>
-              <Label className="text-xs">On</Label>
-              <TimeInput24 value={form.on} onChange={(v) => setForm({ ...form, on: v })} className="h-9 w-full sm:w-28" disabled={availablePins.length === 0} />
-            </div>
-            <div>
-              <Label className="text-xs">Off</Label>
-              <TimeInput24 value={form.off} onChange={(v) => setForm({ ...form, off: v })} className="h-9 w-full sm:w-28" disabled={availablePins.length === 0} />
-            </div>
-            <div className="flex items-center gap-2">
-              <Label className="text-xs">Schedule</Label>
-              <Switch checked={form.scheduleEnabled} onCheckedChange={(v) => setForm({ ...form, scheduleEnabled: v })} disabled={availablePins.length === 0} />
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-[auto,1fr,auto,auto] gap-2 sm:gap-3 items-center w-full">
+          <div>
+            <Label className="text-xs">Name</Label>
+            <Input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="h-9" placeholder="e.g. tester" />
           </div>
           <div>
-            <Button size="sm" onClick={addLight} disabled={busy === "add" || !form.name.trim() || availablePins.length === 0 || usedPins.has(form.pin)}> {busy === "add" ? "Adding..." : "Add"} </Button>
-            {availablePins.length === 0 && (
-              <div className="text-[11px] text-muted-foreground mt-1">All GPIO pins (19, 21, 22, 23) are in use. Remove a light to add a new one.</div>
+            <Label className="text-xs">PIN</Label>
+            <select className="h-9 w-full bg-background border rounded-md px-2 text-sm" value={form.pin} onChange={(e) => setForm({ ...form, pin: parseInt(e.target.value) })}>
+              <option value={19} disabled={usedPins.has(19)}>19{usedPins.has(19) ? " (used)" : ""}</option>
+              <option value={21} disabled={usedPins.has(21)}>21{usedPins.has(21) ? " (used)" : ""}</option>
+              <option value={22} disabled={usedPins.has(22)}>22{usedPins.has(22) ? " (used)" : ""}</option>
+              <option value={23} disabled={usedPins.has(23)}>23{usedPins.has(23) ? " (used)" : ""}</option>
+            </select>
+            {usedPins.has(form.pin) && (
+              <div className="text-[11px] text-red-500 mt-1">This PIN is already used. Please choose another.</div>
             )}
           </div>
+          <div>
+            <Label className="text-xs">On</Label>
+            <TimeInput24 value={form.on} onChange={(v) => setForm({ ...form, on: v })} className="h-9 w-28" disabled={availablePins.length === 0} />
+          </div>
+          <div>
+            <Label className="text-xs">Off</Label>
+            <TimeInput24 value={form.off} onChange={(v) => setForm({ ...form, off: v })} className="h-9 w-28" disabled={availablePins.length === 0} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs">Schedule</Label>
+            <Switch checked={form.scheduleEnabled} onCheckedChange={(v) => setForm({ ...form, scheduleEnabled: v })} disabled={availablePins.length === 0} />
+          </div>
+        </div>
+        <div className="mt-3">
+          <Button size="sm" onClick={addLight} disabled={busy === "add" || !form.name.trim() || availablePins.length === 0 || usedPins.has(form.pin)} className="w-full sm:w-auto"> {busy === "add" ? "Adding..." : "Add"} </Button>
+          {availablePins.length === 0 && (
+            <div className="text-[11px] text-muted-foreground mt-1">All GPIO pins (19, 21, 22, 23) are in use. Remove a light to add a new one.</div>
+          )}
         </div>
       </Card>
     </div>

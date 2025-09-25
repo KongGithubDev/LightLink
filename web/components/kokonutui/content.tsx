@@ -44,7 +44,7 @@ export default function Content() {
 
       {/* Blurred content until connected */}
       <div className={`${isReady ? '' : 'blur-sm pointer-events-none select-none'} space-y-4`}>
-        <div className="bg-white dark:bg-[#0F0F12] rounded-xl p-4 sm:p-6 flex flex-col border border-gray-200 dark:border-[#1F1F23]">
+        <div className="bg-white dark:bg-[#0F0F12] rounded-xl p-6 flex flex-col border border-gray-200 dark:border-[#1F1F23]">
           <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 text-left flex items-center gap-2">
             <Home className="w-3.5 h-3.5 text-zinc-900 dark:text-zinc-50" />
             Room Lighting Control
@@ -54,7 +54,7 @@ export default function Content() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-[#0F0F12] rounded-xl p-4 sm:p-6 flex flex-col items-start justify-start border border-gray-200 dark:border-[#1F1F23]">
+        <div className="bg-white dark:bg-[#0F0F12] rounded-xl p-6 flex flex-col items-start justify-start border border-gray-200 dark:border-[#1F1F23]">
           <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 text-left flex items-center gap-2">
             <Clock className="w-3.5 h-3.5 text-zinc-900 dark:text-zinc-50" />
             Light Scheduling

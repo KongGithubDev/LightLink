@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   })(),
   title: {
     default: "LightLink",
-    template: "%s · LightLink",
+    template: "%s ? LightLink",
   },
   description: "Control your home lighting with ESP32 + Next.js. Real-time dashboard, scheduling, and secure APIs.",
   applicationName: "LightLink",
@@ -31,13 +31,13 @@ export const metadata: Metadata = {
   generator: "LightLink",
 }
 
-// Ensure mobile devices use proper viewport scaling and support notch safe areas
+// Ensure responsive scaling on all mobile devices (App Router)
 export const viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  viewportFit: "cover",
-} as const
+  userScalable: false,
+}
 
 export default function RootLayout({
   children,
@@ -46,7 +46,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body className={`${inter.className} min-h-screen antialiased` }>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
         </ThemeProvider>

@@ -218,9 +218,9 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
       <div className="space-y-3">
         {/* PIN controls */}
         <Card className="p-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center justify-between">
             <div className="font-medium text-sm">GPIO Pins</div>
-            <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
+            <div className="flex items-center gap-4">
               {allowedPins.map((p) => (
                 <div key={p} className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">PIN {p}</span>
@@ -233,7 +233,7 @@ export default function RoomLightControls({ className }: RoomLightControlsProps)
 
         {Object.values(lights).map((room) => (
           <Card key={room.id} className="p-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {room.isOn ? (
                   <Lightbulb className="w-4 h-4 text-yellow-400" />
