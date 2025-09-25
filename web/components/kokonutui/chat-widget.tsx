@@ -19,11 +19,17 @@ export default function ChatWidget() {
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
   const socketRef = useRef<Socket | null>(null)
+  const [deviceReady, setDeviceReady] = useState<boolean>(false)
 
   useEffect(() => {
     const socket: Socket = io(undefined, { path: "/api/socket.io", transports: ["websocket", "polling"] })
     socketRef.current = socket
+    const onStatus = (payload: any) => {
+      if (payload && typeof payload.deviceConnected === 'boolean') setDeviceReady(!!payload.deviceConnected)
+    }
+    socket.on("status", onStatus)
     return () => {
+      socket.off("status", onStatus)
       socket.close(); socketRef.current = null
     }
   }, [])
@@ -75,9 +81,14 @@ export default function ChatWidget() {
         append({ role: "assistant", content: `ขออภัยค่ะ PIN ${pin} ไม่สามารถใช้งานได้ กรุณาเลือก PIN ที่ใช้งานได้คือ 19, 21, 22 หรือ 23 ค่ะ 😊` })
         return false
       }
-      s.emit("cmd", { action: "add_light", name, pin, on: "18:00", off: "23:00", scheduleEnabled: false })
+      const onT = typeof intent?.on === 'string' ? intent.on : "18:00"
+      const offT = typeof intent?.off === 'string' ? intent.off : "23:00"
+      const scheduleEnabled = typeof intent?.on === 'string' && typeof intent?.off === 'string'
+      s.emit("cmd", { action: "add_light", name, pin, on: onT, off: offT, scheduleEnabled })
       try { s.emit("cmd", { action: "get_status" }) } catch {}
-      append({ role: "assistant", content: `กำลังสร้างไฟ '${name}' ที่ PIN ${pin} แล้วค่ะ 😊` })
+      // Always follow training spec verification line
+      const cmd = `CREATED LIGHT NAME ${name.toUpperCase()} PIN ${pin} SCHEDULE ${onT}-${offT} ENABLED ${scheduleEnabled}`
+      append({ role: "assistant", content: cmd })
       return true
     }
     if (type === "delete") {
@@ -86,7 +97,8 @@ export default function ChatWidget() {
       if (!name) { append({ role: "assistant", content: "โปรดระบุชื่อไฟที่จะลบค่ะ เช่น \"ลบไฟ kitchen\" 😊" }); return false }
       s.emit("cmd", { action: "delete_light", name })
       try { s.emit("cmd", { action: "get_status" }) } catch {}
-      append({ role: "assistant", content: `กำลังลบไฟ '${name}' ออกจากระบบแล้วค่ะ 😊` })
+      const cmd = `DELETED LIGHT NAME ${name.toUpperCase()}`
+      append({ role: "assistant", content: cmd })
       return true
     }
     if (type === "toggle") {
@@ -96,7 +108,8 @@ export default function ChatWidget() {
       if (Number.isInteger(pin)) {
         s.emit("cmd", { action: "set_pin", pin, state })
         try { s.emit("cmd", { action: "get_status" }) } catch {}
-        append({ role: "assistant", content: `กำลังสั่ง${state ? "เปิด" : "ปิด"}ไฟที่ PIN ${pin} แล้วค่ะ 😊` })
+        const cmd = state ? `TURN ON LIGHT PIN ${pin}` : `TURN OFF LIGHT PIN ${pin}`
+        append({ role: "assistant", content: cmd })
         // also send by name if provided
         if (name) s.emit("cmd", { action: "set", target: name, state })
         return true
@@ -104,7 +117,8 @@ export default function ChatWidget() {
       if (name) {
         s.emit("cmd", { action: "set", target: name, state })
         try { s.emit("cmd", { action: "get_status" }) } catch {}
-        append({ role: "assistant", content: `สั่ง${state ? "เปิด" : "ปิด"} '${name}' แล้วค่ะ 😊` })
+        const cmd = state ? `TURN ON LIGHT NAME ${name.toUpperCase()}` : `TURN OFF LIGHT NAME ${name.toUpperCase()}`
+        append({ role: "assistant", content: cmd })
         return true
       }
       append({ role: "assistant", content: "โปรดระบุชื่อไฟหรือ PIN (เช่น: turn on tester หรือ turn off pin 23)" })

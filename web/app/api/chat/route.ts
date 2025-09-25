@@ -48,49 +48,94 @@ export async function POST(req: NextRequest) {
     const data = await res.json().catch(() => ({}))
     // Chatbase typical field: data.text or data.message; support both
     const reply = data?.text || data?.message || ""
-    // Also provide naive server-side intent so client can act immediately
-    const intent = extractIntent(message)
+    // Try to parse a leading UPPERCASE command line from reply for execution, e.g. 'TURN ON LIGHT PIN 19'
+    const firstLine = String(reply || "").split(/\r?\n/)[0] || ""
+    const intentFromReply = parseIntentFromTokens(firstLine)
+    // Fallback: parse from user's message
+    const intent = intentFromReply || parseIntentFromTokens(message)
     return NextResponse.json({ reply, intent })
   } catch (err: any) {
     return NextResponse.json({ error: "proxy_failed", message: String(err?.message || err) }, { status: 500 })
   }
 }
 
-// Very simple rule-based intent extraction to cover core commands
-function extractIntent(input: string): { type: string; name?: string; pin?: number; state?: boolean } {
-  const s = (input || "").toLowerCase()
-  // English captures
-  const nameMatchEn = /(?:light|room|name)\s*([a-z0-9_-]{1,32})/i.exec(input)
-  const pinMatchCommon = /(pin|พิน)\s*(\d{1,2})/i.exec(input)
-  const turnOnEn = /(turn\s*on|switch\s*on|open|start|enable)/i.test(input)
-  const turnOffEn = /(turn\s*off|switch\s*off|close|stop|disable)/i.test(input)
-  const createEn = /(create|add)\s+(light|room)/i.test(s)
-  const delEn = /(delete|remove)\s+(light|room)/i.test(s)
+// Token-based parser (no regex) for core commands. Supports both EN and TH keywords.
+function parseIntentFromTokens(text: string): { type: string; name?: string; pin?: number; state?: boolean } | null {
+  if (!text || typeof text !== "string") return null
+  const norm = (text || "").trim()
+  if (!norm) return null
+  // Normalize: remove punctuation into spaces, uppercase for compare
+  const cleaned = norm
+    .replace(/[\t\r\n]/g, " ")
+    // keep ':' and '-' to preserve time ranges like 06:00 - 20:00
+    .replace(/[.,;!?#()[\]{}<>_/\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  const upper = cleaned.toUpperCase()
+  const tokens = upper.split(" ")
+  const rawTokens = cleaned.split(" ") // keep original-case-ish for names
 
-  // Thai captures
-  const turnOnTh = /(เปิด(ไฟ)?)/i.test(input)
-  // Avoid matching 'ปิด' inside 'เปิด' by requiring no leading 'เ'
-  const turnOffTh = /(?<!เ)ปิด(ไฟ)?/i.test(input)
-  const createTh = /(สร้าง|เพิ่ม)\s*(ไฟ|ห้อง)?/i.test(input)
-  const delTh = /(ลบ|ลบไฟ|เอาออก)\s*(ไฟ|ห้อง)?/i.test(input)
-  const nameMatchTh = /ไฟ\s*([a-zA-Z0-9_-]{1,32})/i.exec(input)
+  const has = (...keys: string[]) => keys.every(k => tokens.includes(k))
+  const findIndex = (key: string) => tokens.findIndex(t => t === key)
 
-  const name = nameMatchEn?.[1] || nameMatchTh?.[1]
-  const pin = pinMatchCommon ? Number(pinMatchCommon[2]) : undefined
-  const turnOn = turnOnEn || turnOnTh
-  const turnOff = turnOffEn || turnOffTh
-  const create = createEn || createTh
-  const del = delEn || delTh
+  // TURN ON LIGHT PIN 19 / TURN OFF LIGHT PIN 19
+  if (tokens[0] === "TURN" && tokens[1] === "ON" && tokens.includes("PIN")) {
+    const pIdx = findIndex("PIN")
+    const v = Number(tokens[pIdx + 1])
+    if (Number.isFinite(v)) return { type: "toggle", pin: v, state: true }
+  }
+  if (tokens[0] === "TURN" && tokens[1] === "OFF" && tokens.includes("PIN")) {
+    const pIdx = findIndex("PIN")
+    const v = Number(tokens[pIdx + 1])
+    if (Number.isFinite(v)) return { type: "toggle", pin: v, state: false }
+  }
 
-  if (create) {
-    return { type: "create", name: name, pin }
+  // Thai: เปิด/ปิด PIN 19
+  if ((tokens[0] === "เปิด" || tokens[0] === "ปิด") && (tokens[1] === "PIN" || tokens[1] === "พิน")) {
+    const v = Number(tokens[2])
+    if (Number.isFinite(v)) return { type: "toggle", pin: v, state: tokens[0] === "เปิด" }
   }
-  if (del) {
-    return { type: "delete", name: name }
+
+  // CREATE LIGHT kitchen PIN 21 [ON 06:00 - 20:00]
+  if (tokens[0] === "CREATE" || tokens[0] === "ADD" || tokens[0] === "สร้าง" || tokens[0] === "เพิ่ม") {
+    // name is the token after LIGHT (optional) and before PIN
+    let name: string | undefined
+    const lightIdx = findIndex("LIGHT")
+    const pinIdx = tokens.findIndex(t => t === "PIN" || t === "พิน")
+    if (pinIdx > 0) {
+      if (lightIdx >= 0 && pinIdx - lightIdx >= 2) name = rawTokens[lightIdx + 1]
+      else if (lightIdx < 0 && pinIdx >= 1) name = rawTokens[1]
+      const v = Number(tokens[pinIdx + 1])
+      // Optional time range after PIN: look for 'ON' token
+      let on: string | undefined
+      let off: string | undefined
+      const onIdx = findIndex("ON")
+      const isHM = (s: string) => /\d{1,2}:\d{2}/.test(s)
+      if (onIdx >= 0 && rawTokens[onIdx + 1]) {
+        const t1 = rawTokens[onIdx + 1]
+        const t2 = rawTokens[onIdx + 2] === '-' ? rawTokens[onIdx + 3] : rawTokens[onIdx + 2]
+        if (t1 && isHM(t1) && t2 && isHM(t2)) { on = t1; off = t2 }
+      }
+      if (name && Number.isFinite(v)) return { type: "create", name, pin: v, ...(on && off ? { on, off } : {}) }
+    }
   }
-  if (turnOn || turnOff) {
-    const state = !!turnOn && !turnOff
-    return { type: "toggle", state, name, pin }
+
+  // DELETE LIGHT kitchen / ลบ ไฟ kitchen
+  if (tokens[0] === "DELETE" || tokens[0] === "REMOVE" || tokens[0] === "ลบ" || tokens[0] === "เอาออก") {
+    const lightIdx = findIndex("LIGHT")
+    if (lightIdx >= 0 && rawTokens[lightIdx + 1]) return { type: "delete", name: rawTokens[lightIdx + 1] }
+    if (rawTokens[1]) return { type: "delete", name: rawTokens[1] }
   }
-  return { type: "chat" }
+
+  // TURN ON tester / TURN OFF kitchen
+  if (tokens[0] === "TURN" && (tokens[1] === "ON" || tokens[1] === "OFF") && rawTokens[2]) {
+    return { type: "toggle", name: rawTokens[2], state: tokens[1] === "ON" }
+  }
+
+  // Thai: เปิด tester / ปิด kitchen
+  if ((tokens[0] === "เปิด" || tokens[0] === "ปิด") && rawTokens[1]) {
+    return { type: "toggle", name: rawTokens[1], state: tokens[0] === "เปิด" }
+  }
+
+  return null
 }
