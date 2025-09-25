@@ -1,9 +1,9 @@
 "use client"
 
-import { Clock, Home, MessageSquare } from "lucide-react"
+import { Clock, Home } from "lucide-react"
 import RoomLightControls from "./room-light-controls"
 import LightScheduler from "./light-scheduler"
-import ChatWidget from "./chat-widget"
+import ChatAssistant from "./chat-assistant"
 import { useEffect, useRef, useState } from "react"
 import { io, Socket } from "socket.io-client"
 
@@ -63,13 +63,8 @@ export default function Content() {
           <LightScheduler />
         </div>
 
-        <div className="bg-white dark:bg-[#0F0F12] rounded-xl p-6 flex flex-col items-start justify-start border border-gray-200 dark:border-[#1F1F23]">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 text-left flex items-center gap-2">
-            <MessageSquare className="w-3.5 h-3.5 text-zinc-900 dark:text-zinc-50" />
-            AI Assistant
-          </h2>
-          <ChatWidget />
-        </div>
+        {/* Floating AI Assistant Button + Modal */}
+        <ChatAssistant />
       </div>
     </div>
   )

@@ -13,7 +13,8 @@ interface ChatMessage {
 
 export default function ChatWidget() {
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: "assistant", content: "สวัสดีค่ะ ฉันคือผู้ช่วย LightLink." },
+    { role: "assistant", content: "สวัสดี" },
+    { role: "assistant", content: "สวัสดีค่ะ! มีอะไรให้ฉันช่วยเหลือเกี่ยวกับระบบ LightLink ไหมคะ? 😊" },
   ])
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
@@ -50,7 +51,9 @@ export default function ChatWidget() {
       if (data?.intent && typeof data.intent === "object") {
         executeIntent(data.intent)
       }
-      append({ role: "assistant", content: String(data?.reply || "(no reply)") })
+      if (data?.reply) {
+        append({ role: "assistant", content: String(data.reply) })
+      }
     } catch (e: any) {
       append({ role: "assistant", content: `ขอโทษค่ะ ส่งข้อความไม่สำเร็จ: ${String(e?.message || e)}` })
     } finally {
@@ -62,19 +65,30 @@ export default function ChatWidget() {
     const s = socketRef.current
     if (!s) return
     const type = String(intent?.type || "")
+    const allowedPins = new Set([19, 21, 22, 23])
     if (type === "create") {
       const name = String(intent?.name || "").trim()
       const pin = Number(intent?.pin)
       if (!name || !Number.isInteger(pin)) { append({ role: "assistant", content: "โปรดระบุชื่อไฟและ PIN ที่ถูกต้อง (เช่น: add light tester pin 23)" }); return }
+      if (!allowedPins.has(pin)) {
+        append({ role: "assistant", content: `ขออภัยค่ะ PIN ${pin} ไม่สามารถใช้งานได้ กรุณาเลือก PIN ที่ใช้งานได้คือ 19, 21, 22 หรือ 23 ค่ะ 😊` })
+        return
+      }
       s.emit("cmd", { action: "add_light", name, pin, on: "18:00", off: "23:00", scheduleEnabled: false })
       append({ role: "assistant", content: `กำลังสร้างไฟ '${name}' ที่ PIN ${pin}` })
+      append({ role: "assistant", content: `กำลังสร้างไฟ '${name}' ที่ PIN ${pin} และจะเปิดใช้งานตารางทันทีค่ะ 😊 มีอะไรให้ช่วยอีกไหมคะ?` })
       return
     }
     if (type === "delete") {
       const name = String(intent?.name || "").trim()
-      if (!name) { append({ role: "assistant", content: "โปรดระบุชื่อไฟที่จะลบ" }); return }
+      const pin = intent?.pin !== undefined ? Number(intent.pin) : undefined
+      if (!name) { append({ role: "assistant", content: "โปรดระบุชื่อไฟที่จะลบค่ะ เช่น \"ลบไฟ kitchen\" 😊" }); return }
       s.emit("cmd", { action: "delete_light", name })
-      append({ role: "assistant", content: `กำลังลบไฟ '${name}'` })
+      if (Number.isInteger(pin)) {
+        append({ role: "assistant", content: `กำลังลบไฟ '${name}' ที่ PIN ${pin} ออกจากระบบแล้วค่ะ 😊 หากต้องการความช่วยเหลือเพิ่มเติม บอกได้เลยนะคะ!` })
+      } else {
+        append({ role: "assistant", content: `กำลังลบไฟ '${name}' ออกจากระบบแล้วค่ะ 😊 หากมีอะไรให้ช่วยเพิ่มเติม บอกได้เลยนะคะ!` })
+      }
       return
     }
     if (type === "toggle") {
@@ -83,14 +97,17 @@ export default function ChatWidget() {
       const state = !!intent?.state
       if (Number.isInteger(pin)) {
         s.emit("cmd", { action: "set_pin", pin, state })
-        append({ role: "assistant", content: `สั่ง ${state ? "เปิด" : "ปิด"} PIN ${pin}` })
+        // Thai confirmation
+        append({ role: "assistant", content: `กำลังสั่ง${state ? "เปิด" : "ปิด"}ไฟที่ PIN ${pin} แล้วค่ะ 😊` })
+        // English confirmation to reflect execution as well
+        append({ role: "assistant", content: `The command to ${state ? "turn on" : "turn off"} the light at PIN ${pin} has been executed. If there's anything else you need, feel free to ask! 😊` })
         // also send by name if provided
         if (name) s.emit("cmd", { action: "set", target: name, state })
         return
       }
       if (name) {
         s.emit("cmd", { action: "set", target: name, state })
-        append({ role: "assistant", content: `สั่ง ${state ? "เปิด" : "ปิด"} '${name}'` })
+        append({ role: "assistant", content: `สั่ง ${state ? "เปิด" : "ปิด"} '${name}' แล้วค่ะ 😊 หากมีอะไรให้ช่วยอีก บอกได้เลยนะคะ!` })
         return
       }
       append({ role: "assistant", content: "โปรดระบุชื่อไฟหรือ PIN (เช่น: turn on tester หรือ turn off pin 23)" })
