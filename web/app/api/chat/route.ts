@@ -59,23 +59,36 @@ export async function POST(req: NextRequest) {
 // Very simple rule-based intent extraction to cover core commands
 function extractIntent(input: string): { type: string; name?: string; pin?: number; state?: boolean } {
   const s = (input || "").toLowerCase()
-  const nameMatch = /(?:light|room|name)\s*([a-z0-9_-]{1,32})/i.exec(input)
-  const pinMatch = /pin\s*(\d{1,2})/i.exec(input)
-  const turnOn = /(turn\s*on|switch\s*on|open|start|enable)/i.test(input)
-  const turnOff = /(turn\s*off|switch\s*off|close|stop|disable)/i.test(input)
-  const create = /(create|add)\s+(light|room)/i.test(s)
-  const del = /(delete|remove)\s+(light|room)/i.test(s)
+  // English captures
+  const nameMatchEn = /(?:light|room|name)\s*([a-z0-9_-]{1,32})/i.exec(input)
+  const pinMatchCommon = /(pin|พิน)\s*(\d{1,2})/i.exec(input)
+  const turnOnEn = /(turn\s*on|switch\s*on|open|start|enable)/i.test(input)
+  const turnOffEn = /(turn\s*off|switch\s*off|close|stop|disable)/i.test(input)
+  const createEn = /(create|add)\s+(light|room)/i.test(s)
+  const delEn = /(delete|remove)\s+(light|room)/i.test(s)
+
+  // Thai captures
+  const turnOnTh = /(เปิด(ไฟ)?)/i.test(input)
+  const turnOffTh = /(ปิด(ไฟ)?)/i.test(input)
+  const createTh = /(สร้าง|เพิ่ม)\s*(ไฟ|ห้อง)?/i.test(input)
+  const delTh = /(ลบ|ลบไฟ|เอาออก)\s*(ไฟ|ห้อง)?/i.test(input)
+  const nameMatchTh = /ไฟ\s*([a-zA-Z0-9_-]{1,32})/i.exec(input)
+
+  const name = nameMatchEn?.[1] || nameMatchTh?.[1]
+  const pin = pinMatchCommon ? Number(pinMatchCommon[2]) : undefined
+  const turnOn = turnOnEn || turnOnTh
+  const turnOff = turnOffEn || turnOffTh
+  const create = createEn || createTh
+  const del = delEn || delTh
 
   if (create) {
-    return { type: "create", name: nameMatch?.[1], pin: pinMatch ? Number(pinMatch[1]) : undefined }
+    return { type: "create", name: name, pin }
   }
   if (del) {
-    return { type: "delete", name: nameMatch?.[1] }
+    return { type: "delete", name: name }
   }
   if (turnOn || turnOff) {
     const state = !!turnOn && !turnOff
-    const pin = pinMatch ? Number(pinMatch[1]) : undefined
-    const name = nameMatch?.[1]
     return { type: "toggle", state, name, pin }
   }
   return { type: "chat" }
