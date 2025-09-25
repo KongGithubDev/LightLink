@@ -69,7 +69,8 @@ function extractIntent(input: string): { type: string; name?: string; pin?: numb
 
   // Thai captures
   const turnOnTh = /(เปิด(ไฟ)?)/i.test(input)
-  const turnOffTh = /(ปิด(ไฟ)?)/i.test(input)
+  // Avoid matching 'ปิด' inside 'เปิด' by requiring no leading 'เ'
+  const turnOffTh = /(?<!เ)ปิด(ไฟ)?/i.test(input)
   const createTh = /(สร้าง|เพิ่ม)\s*(ไฟ|ห้อง)?/i.test(input)
   const delTh = /(ลบ|ลบไฟ|เอาออก)\s*(ไฟ|ห้อง)?/i.test(input)
   const nameMatchTh = /ไฟ\s*([a-zA-Z0-9_-]{1,32})/i.exec(input)
