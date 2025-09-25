@@ -42,7 +42,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
         const catalog = await col.find({}, { projection: { _id: 0 } }).toArray()
         const byName = new Map<string, any>()
         for (const l of cur?.lights || []) byName.set(l.name, { ...l })
-        const merged: any = { device: cur?.device || "unknown", lights: [], updatedAt: Date.now() }
+        const deviceConnected = !!global.wsInstance && typeof global.wsInstance.clients?.size === 'number' && global.wsInstance.clients.size > 0
+        const merged: any = { device: cur?.device || "unknown", deviceConnected, lights: [], updatedAt: Date.now() }
         for (const c of catalog) {
           const ex = byName.get(c.name)
           if (ex) {
@@ -282,6 +283,10 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
           const cur = store.getStatus()
           if (cur) ws.send(JSON.stringify({ type: "status", payload: cur }))
         } catch {}
+        // Broadcast merged status including deviceConnected so UI can update readiness
+        try {
+          Promise.resolve(buildMergedStatus()).then((merged) => { if (merged) global.ioInstance?.emit("status", merged) })
+        } catch {}
 
         ws.on("message", (data) => {
           try {
@@ -300,6 +305,10 @@ export default function handler(req: NextApiRequest, res: NextApiResponse & { so
 
         ws.on("close", () => {
           console.log("[ws] device disconnected", { clients: wss.clients.size })
+          // Notify UI that device disconnected
+          try {
+            Promise.resolve(buildMergedStatus()).then((merged) => { if (merged) global.ioInstance?.emit("status", merged) })
+          } catch {}
         })
       })
       global.wsInstance = wss
